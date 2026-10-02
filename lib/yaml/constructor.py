@@ -2,6 +2,7 @@
 __all__ = [
     'BaseConstructor',
     'SafeConstructor',
+    'PairsConstructor',
     'FullConstructor',
     'UnsafeConstructor',
     'Constructor',
@@ -10,6 +11,7 @@ __all__ = [
 
 from .error import *
 from .nodes import *
+from .pairs import Pairs
 
 import collections.abc, datetime, base64, binascii, re, sys, types
 
@@ -481,6 +483,47 @@ SafeConstructor.add_constructor(
 
 SafeConstructor.add_constructor(None,
         SafeConstructor.construct_undefined)
+
+class PairsConstructor(SafeConstructor):
+    """Construct every YAML mapping as a ``Pairs`` object: an ordered
+    list of key-value entries that preserves complex keys, duplicate
+    keys and entry order.  Keys and values are constructed with the
+    same safe rules as ``SafeConstructor``.  Merge keys (``<<``) are
+    kept as literal entries instead of being flattened."""
+
+    def construct_mapping(self, node, deep=False):
+        if not isinstance(node, MappingNode):
+            raise ConstructorError(None, None,
+                    "expected a mapping node, but found %s" % node.id,
+                    node.start_mark)
+        pairs = Pairs()
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=True)
+            value = self.construct_object(value_node, deep=deep)
+            pairs.append((key, value))
+        return pairs
+
+    def construct_yaml_map(self, node):
+        data = Pairs()
+        yield data
+        data.extend(self.construct_mapping(node, deep=True))
+
+    def construct_yaml_set(self, node):
+        data = set()
+        yield data
+        data.update(self.construct_mapping(node, deep=True).keys())
+
+    def construct_yaml_merge(self, node):
+        # Merge keys are not flattened; keep ``<<`` as a literal key.
+        return self.construct_scalar(node)
+
+PairsConstructor.add_constructor(
+        'tag:yaml.org,2002:map',
+        PairsConstructor.construct_yaml_map)
+
+PairsConstructor.add_constructor(
+        'tag:yaml.org,2002:merge',
+        PairsConstructor.construct_yaml_merge)
 
 class FullConstructor(SafeConstructor):
     # 'extend' is blacklisted because it is used by

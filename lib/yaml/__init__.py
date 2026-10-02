@@ -4,6 +4,7 @@ from .error import *
 from .tokens import *
 from .events import *
 from .nodes import *
+from .pairs import *
 
 from .loader import *
 from .dumper import *
@@ -133,6 +134,32 @@ def safe_load_all(stream):
     to be safe for untrusted input.
     """
     return load_all(stream, SafeLoader)
+
+def load_pairs(stream):
+    """
+    Parse the first YAML document in a stream
+    and produce the corresponding Python object,
+    constructing every mapping as a Pairs object:
+    ordered key-value entries that preserve complex
+    keys, duplicate keys and entry order.
+
+    Resolve only basic YAML tags. This is known
+    to be safe for untrusted input.
+    """
+    return load(stream, PairsLoader)
+
+def load_pairs_all(stream):
+    """
+    Parse all YAML documents in a stream
+    and produce corresponding Python objects,
+    constructing every mapping as a Pairs object:
+    ordered key-value entries that preserve complex
+    keys, duplicate keys and entry order.
+
+    Resolve only basic YAML tags. This is known
+    to be safe for untrusted input.
+    """
+    return load_all(stream, PairsLoader)
 
 def unsafe_load(stream):
     """
@@ -387,4 +414,3 @@ class YAMLObject(metaclass=YAMLObjectMetaclass):
         """
         return dumper.represent_yaml_object(cls.yaml_tag, data, cls,
                 flow_style=cls.yaml_flow_style)
-

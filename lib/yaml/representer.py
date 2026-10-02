@@ -4,6 +4,7 @@ __all__ = ['BaseRepresenter', 'SafeRepresenter', 'Representer',
 
 from .error import *
 from .nodes import *
+from .pairs import Pairs
 
 import datetime, copyreg, types, base64, collections
 
@@ -206,6 +207,12 @@ class SafeRepresenter(BaseRepresenter):
     def represent_dict(self, data):
         return self.represent_mapping('tag:yaml.org,2002:map', data)
 
+    def represent_pairs(self, data):
+        # Pass a plain list of entries so the entry order is preserved
+        # (represent_mapping only sorts objects with an ``items`` method).
+        return self.represent_mapping('tag:yaml.org,2002:map',
+                data.items())
+
     def represent_set(self, data):
         value = {}
         for key in data:
@@ -256,6 +263,9 @@ SafeRepresenter.add_representer(tuple,
 
 SafeRepresenter.add_representer(dict,
         SafeRepresenter.represent_dict)
+
+SafeRepresenter.add_representer(Pairs,
+        SafeRepresenter.represent_pairs)
 
 SafeRepresenter.add_representer(set,
         SafeRepresenter.represent_set)
@@ -386,4 +396,3 @@ Representer.add_representer(types.ModuleType,
 
 Representer.add_multi_representer(object,
         Representer.represent_object)
-
