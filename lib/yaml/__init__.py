@@ -7,6 +7,7 @@ from .nodes import *
 
 from .loader import *
 from .dumper import *
+from .limits import *
 
 __version__ = '7.0.0.dev0'
 try:
@@ -114,25 +115,33 @@ def full_load_all(stream):
     """
     return load_all(stream, FullLoader)
 
-def safe_load(stream):
+def safe_load(stream, limits=None):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
 
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
-    """
-    return load(stream, SafeLoader)
 
-def safe_load_all(stream):
+    ``limits`` is an optional :class:`ResourceLimits` configuring resource
+    budgets (nesting depth, scalar length, node and alias counts). Pass
+    ``ResourceLimits.unlimited()`` to disable enforcement.
+    """
+    return load(stream, lambda s: SafeLoader(s, limits=limits))
+
+def safe_load_all(stream, limits=None):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
 
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
+
+    ``limits`` configures resource budgets. Per-document budgets reset after
+    each document while ``stream_*`` budgets apply cumulatively to the whole
+    stream.
     """
-    return load_all(stream, SafeLoader)
+    return load_all(stream, lambda s: SafeLoader(s, limits=limits))
 
 def unsafe_load(stream):
     """

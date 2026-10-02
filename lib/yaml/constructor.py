@@ -52,17 +52,23 @@ class BaseConstructor:
         return None
 
     def construct_document(self, node):
-        data = self.construct_object(node)
-        while self.state_generators:
-            state_generators = self.state_generators
+        try:
+            data = self.construct_object(node)
+            while self.state_generators:
+                state_generators = self.state_generators
+                self.state_generators = []
+                for generator in state_generators:
+                    for dummy in generator:
+                        pass
+            return data
+        finally:
+            # Release the per-document temporary state. Running this in
+            # `finally` also clears partially constructed objects when a
+            # resource limit aborts construction mid-document.
+            self.constructed_objects = {}
+            self.recursive_objects = {}
             self.state_generators = []
-            for generator in state_generators:
-                for dummy in generator:
-                    pass
-        self.constructed_objects = {}
-        self.recursive_objects = {}
-        self.deep_construct = False
-        return data
+            self.deep_construct = False
 
     def construct_object(self, node, deep=False):
         if node in self.constructed_objects:

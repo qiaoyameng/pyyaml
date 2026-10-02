@@ -24,6 +24,26 @@ If you don't trust the input YAML stream, you should use:
 
     >>> yaml.safe_load(stream)
 
+## Resource budgets
+
+Safe loading prevents arbitrary object construction, but untrusted input can
+still exhaust memory. The pure-Python safe loading path therefore enforces
+resource budgets, configured with `yaml.ResourceLimits`:
+
+    >>> yaml.safe_load(stream, limits=yaml.ResourceLimits(
+    ...     max_depth=100, max_scalar_length=1_000_000,
+    ...     max_nodes=10_000, max_aliases=100))
+
+The four per-document budgets are nesting depth (checked while composing,
+before descending into children), scalar length in characters (charged while
+scanning, before the scalar value is assembled), the number of unique nodes
+(node definitions, not alias references), and the number of alias references
+(checked iteratively, so cyclic aliases cannot make the check recurse).
+`stream_*` arguments add separate cumulative budgets for `safe_load_all`.
+Exceeding a budget raises `yaml.ResourceLimitError`, a `yaml.YAMLError`
+subclass carrying the budget category, scope and source position. Pass
+`ResourceLimits.unlimited()` to disable enforcement.
+
 ## Testing
 
 PyYAML includes a comprehensive test suite.

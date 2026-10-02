@@ -12,6 +12,7 @@ class Composer:
 
     def __init__(self):
         self.anchors = {}
+        self._resource_budget = None
 
     def check_node(self):
         # Drop the STREAM-START event.
@@ -51,14 +52,21 @@ class Composer:
         # Drop the DOCUMENT-START event.
         self.get_event()
 
-        # Compose the root node.
-        node = self.compose_node(None, None)
+        # The anchor table holds every anchored node of the current document
+        # and is the per-document temporary state of the composer. Reset it
+        # in `finally` so a budget error while composing releases partially
+        # built nodes instead of leaving them referenced here.
+        try:
+            # Compose the root node.
+            node = self.compose_node(None, None)
 
-        # Drop the DOCUMENT-END event.
-        self.get_event()
-
-        self.anchors = {}
-        return node
+            # Drop the DOCUMENT-END event.
+            self.get_event()
+            return node
+        finally:
+            self.anchors = {}
+            if self._resource_budget is not None:
+                self._resource_budget.reset_document()
 
     def compose_node(self, parent, index):
         if self.check_event(AliasEvent):
@@ -67,6 +75,11 @@ class Composer:
             if anchor not in self.anchors:
                 raise ComposerError(None, None, "found undefined alias %r"
                         % anchor, event.start_mark)
+            # Meter alias references separately from unique nodes. This runs
+            # on the AliasEvent itself and uses no recursion, so cyclic
+            # references cannot make the check recurse.
+            if self._resource_budget is not None:
+                self._resource_budget.charge_alias(event.start_mark)
             return self.anchors[anchor]
         event = self.peek_event()
         anchor = event.anchor
@@ -75,14 +88,20 @@ class Composer:
                 raise ComposerError("found duplicate anchor %r; first occurrence"
                         % anchor, self.anchors[anchor].start_mark,
                         "second occurrence", event.start_mark)
+        # A non-alias event defines one unique node: charge it before the
+        # node is built, so the bound trip before a huge object is composed.
+        if self._resource_budget is not None:
+            self._resource_budget.charge_node(event.start_mark)
         self.descend_resolver(parent, index)
-        if self.check_event(ScalarEvent):
-            node = self.compose_scalar_node(anchor)
-        elif self.check_event(SequenceStartEvent):
-            node = self.compose_sequence_node(anchor)
-        elif self.check_event(MappingStartEvent):
-            node = self.compose_mapping_node(anchor)
-        self.ascend_resolver()
+        try:
+            if self.check_event(ScalarEvent):
+                node = self.compose_scalar_node(anchor)
+            elif self.check_event(SequenceStartEvent):
+                node = self.compose_sequence_node(anchor)
+            elif self.check_event(MappingStartEvent):
+                node = self.compose_mapping_node(anchor)
+        finally:
+            self.ascend_resolver()
         return node
 
     def compose_scalar_node(self, anchor):
@@ -98,42 +117,53 @@ class Composer:
 
     def compose_sequence_node(self, anchor):
         start_event = self.get_event()
-        tag = start_event.tag
-        if tag is None or tag == '!':
-            tag = self.resolve(SequenceNode, None, start_event.implicit)
-        node = SequenceNode(tag, [],
-                start_event.start_mark, None,
-                flow_style=start_event.flow_style)
-        if anchor is not None:
-            self.anchors[anchor] = node
-        index = 0
-        while not self.check_event(SequenceEndEvent):
-            node.value.append(self.compose_node(node, index))
-            index += 1
-        end_event = self.get_event()
-        node.end_mark = end_event.end_mark
-        return node
+        if self._resource_budget is not None:
+            self._resource_budget.enter_collection(start_event.start_mark)
+        try:
+            tag = start_event.tag
+            if tag is None or tag == '!':
+                tag = self.resolve(SequenceNode, None, start_event.implicit)
+            node = SequenceNode(tag, [],
+                    start_event.start_mark, None,
+                    flow_style=start_event.flow_style)
+            if anchor is not None:
+                self.anchors[anchor] = node
+            index = 0
+            while not self.check_event(SequenceEndEvent):
+                node.value.append(self.compose_node(node, index))
+                index += 1
+            end_event = self.get_event()
+            node.end_mark = end_event.end_mark
+            return node
+        finally:
+            if self._resource_budget is not None:
+                self._resource_budget.leave_collection()
 
     def compose_mapping_node(self, anchor):
         start_event = self.get_event()
-        tag = start_event.tag
-        if tag is None or tag == '!':
-            tag = self.resolve(MappingNode, None, start_event.implicit)
-        node = MappingNode(tag, [],
-                start_event.start_mark, None,
-                flow_style=start_event.flow_style)
-        if anchor is not None:
-            self.anchors[anchor] = node
-        while not self.check_event(MappingEndEvent):
-            #key_event = self.peek_event()
-            item_key = self.compose_node(node, None)
-            #if item_key in node.value:
-            #    raise ComposerError("while composing a mapping", start_event.start_mark,
-            #            "found duplicate key", key_event.start_mark)
-            item_value = self.compose_node(node, item_key)
-            #node.value[item_key] = item_value
-            node.value.append((item_key, item_value))
-        end_event = self.get_event()
-        node.end_mark = end_event.end_mark
-        return node
+        if self._resource_budget is not None:
+            self._resource_budget.enter_collection(start_event.start_mark)
+        try:
+            tag = start_event.tag
+            if tag is None or tag == '!':
+                tag = self.resolve(MappingNode, None, start_event.implicit)
+            node = MappingNode(tag, [],
+                    start_event.start_mark, None,
+                    flow_style=start_event.flow_style)
+            if anchor is not None:
+                self.anchors[anchor] = node
+            while not self.check_event(MappingEndEvent):
+                #key_event = self.peek_event()
+                item_key = self.compose_node(node, None)
+                #if item_key in node.value:
+                #    raise ComposerError("found duplicate key", key_event.start_mark)
+                item_value = self.compose_node(node, item_key)
+                #node.value[item_key] = item_value
+                node.value.append((item_key, item_value))
+            end_event = self.get_event()
+            node.end_mark = end_event.end_mark
+            return node
+        finally:
+            if self._resource_budget is not None:
+                self._resource_budget.leave_collection()
 

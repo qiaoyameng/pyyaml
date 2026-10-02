@@ -108,6 +108,15 @@ class Scanner:
         # '[', or '{' tokens.
         self.possible_simple_keys = {}
 
+        # Resource budget shared with the composer; None for loaders that do
+        # not enforce resource limits. Scalar length is charged here while
+        # scanning, before the scalar value is assembled.
+        self._resource_budget = None
+
+    def _charge_scalar(self, amount, mark=None):
+        if self._resource_budget is not None and amount:
+            self._resource_budget.charge_scalar(amount, mark)
+
     # Public methods.
 
     def check_token(self, *choices):
@@ -983,6 +992,8 @@ class Scanner:
 
         chunks = []
         start_mark = self.get_mark()
+        if self._resource_budget is not None:
+            self._resource_budget.begin_scalar()
 
         # Scan the header.
         self.forward()
@@ -1003,16 +1014,20 @@ class Scanner:
 
         # Scan the inner part of the block scalar.
         while self.column == indent and self.peek() != '\0':
+            self._charge_scalar(sum(len(chunk) for chunk in breaks), end_mark)
             chunks.extend(breaks)
             leading_non_space = self.peek() not in ' \t'
             length = 0
             while self.peek(length) not in '\0\r\n\x85\u2028\u2029':
                 length += 1
+            self._charge_scalar(length, self.get_mark())
             chunks.append(self.prefix(length))
             self.forward(length)
             line_break = self.scan_line_break()
             breaks, end_mark = self.scan_block_scalar_breaks(indent)
             if self.column == indent and self.peek() != '\0':
+                # Another content line follows, so this separator (folded or
+                # kept) and the intervening breaks are part of the value.
 
                 # Unfortunately, folding rules are ambiguous.
                 #
@@ -1021,9 +1036,13 @@ class Scanner:
                 if folded and line_break == '\n'    \
                         and leading_non_space and self.peek() not in ' \t':
                     if not breaks:
+                        self._charge_scalar(1, end_mark)
                         chunks.append(' ')
                 else:
+                    self._charge_scalar(len(line_break), end_mark)
                     chunks.append(line_break)
+                self._charge_scalar(sum(len(chunk) for chunk in breaks),
+                        end_mark)
                 
                 # This is Clark Evans's interpretation (also in the spec
                 # examples):
@@ -1041,8 +1060,10 @@ class Scanner:
 
         # Chomp the tail.
         if chomping is not False:
+            self._charge_scalar(len(line_break), end_mark)
             chunks.append(line_break)
         if chomping is True:
+            self._charge_scalar(sum(len(chunk) for chunk in breaks), end_mark)
             chunks.extend(breaks)
 
         # We are done.
@@ -1144,12 +1165,23 @@ class Scanner:
             double = False
         chunks = []
         start_mark = self.get_mark()
+        if self._resource_budget is not None:
+            self._resource_budget.begin_scalar()
         quote = self.peek()
         self.forward()
-        chunks.extend(self.scan_flow_scalar_non_spaces(double, start_mark))
+        new_chunks = self.scan_flow_scalar_non_spaces(double, start_mark)
+        self._charge_scalar(sum(len(chunk) for chunk in new_chunks),
+                self.get_mark())
+        chunks.extend(new_chunks)
         while self.peek() != quote:
-            chunks.extend(self.scan_flow_scalar_spaces(double, start_mark))
-            chunks.extend(self.scan_flow_scalar_non_spaces(double, start_mark))
+            new_chunks = self.scan_flow_scalar_spaces(double, start_mark)
+            self._charge_scalar(sum(len(chunk) for chunk in new_chunks),
+                    self.get_mark())
+            chunks.extend(new_chunks)
+            new_chunks = self.scan_flow_scalar_non_spaces(double, start_mark)
+            self._charge_scalar(sum(len(chunk) for chunk in new_chunks),
+                    self.get_mark())
+            chunks.extend(new_chunks)
         self.forward()
         end_mark = self.get_mark()
         return ScalarToken(''.join(chunks), False, start_mark, end_mark,
@@ -1276,6 +1308,8 @@ class Scanner:
         chunks = []
         start_mark = self.get_mark()
         end_mark = start_mark
+        if self._resource_budget is not None:
+            self._resource_budget.begin_scalar()
         indent = self.indent+1
         # We allow zero indentation for scalars, but then we need to check for
         # document separators at the beginning of the line.
@@ -1298,7 +1332,9 @@ class Scanner:
             if length == 0:
                 break
             self.allow_simple_key = False
+            self._charge_scalar(sum(len(space) for space in spaces), end_mark)
             chunks.extend(spaces)
+            self._charge_scalar(length, self.get_mark())
             chunks.append(self.prefix(length))
             self.forward(length)
             end_mark = self.get_mark()
