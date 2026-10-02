@@ -134,6 +134,27 @@ def safe_load_all(stream):
     """
     return load_all(stream, SafeLoader)
 
+def core_load(stream):
+    """
+    Parse the first YAML document in a stream
+    and produce the corresponding Python object.
+
+    Resolve only basic YAML tags, using the YAML 1.2 core schema
+    (e.g. ``yes``/``on`` stay strings, ``010`` is decimal ten).
+    This is known to be safe for untrusted input.
+    """
+    return load(stream, CoreLoader)
+
+def core_load_all(stream):
+    """
+    Parse all YAML documents in a stream
+    and produce corresponding Python objects.
+
+    Resolve only basic YAML tags, using the YAML 1.2 core schema.
+    This is known to be safe for untrusted input.
+    """
+    return load_all(stream, CoreLoader)
+
 def unsafe_load(stream):
     """
     Parse the first YAML document in a stream
@@ -268,6 +289,24 @@ def safe_dump(data, stream=None, **kwds):
     """
     return dump_all([data], stream, Dumper=SafeDumper, **kwds)
 
+def core_dump_all(documents, stream=None, **kwds):
+    """
+    Serialize a sequence of Python objects into a YAML stream.
+    Produce only basic YAML tags, quoting scalars so that they
+    round-trip through the YAML 1.2 core schema.
+    If stream is None, return the produced string instead.
+    """
+    return dump_all(documents, stream, Dumper=CoreDumper, **kwds)
+
+def core_dump(data, stream=None, **kwds):
+    """
+    Serialize a Python object into a YAML stream.
+    Produce only basic YAML tags, quoting scalars so that they
+    round-trip through the YAML 1.2 core schema.
+    If stream is None, return the produced string instead.
+    """
+    return dump_all([data], stream, Dumper=CoreDumper, **kwds)
+
 def add_implicit_resolver(tag, regexp, first=None,
         Loader=None, Dumper=Dumper):
     """
@@ -387,4 +426,3 @@ class YAMLObject(metaclass=YAMLObjectMetaclass):
         """
         return dumper.represent_yaml_object(cls.yaml_tag, data, cls,
                 flow_style=cls.yaml_flow_style)
-

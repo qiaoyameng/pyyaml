@@ -1,5 +1,5 @@
 
-__all__ = ['BaseResolver', 'Resolver']
+__all__ = ['BaseResolver', 'Resolver', 'CoreResolver']
 
 from .error import *
 from .nodes import *
@@ -225,3 +225,62 @@ Resolver.add_implicit_resolver(
         re.compile(r'^(?:!|&|\*)$'),
         list('!&*'))
 
+class CoreResolver(BaseResolver):
+    """
+    Implicit tag resolution following the YAML 1.2 core schema.
+
+    Unlike Resolver (YAML 1.1), ``yes``/``no``/``on``/``off`` are plain
+    strings, integers are decimal unless prefixed with ``0x`` or ``0o``
+    (no legacy leading-zero octal, binary or sexagesimal forms), and
+    floats require a decimal point or an exponent.
+
+    The resolver tables are private to this class: using CoreResolver
+    never changes the behaviour of Resolver or any other loader/dumper.
+    """
+    pass
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:bool',
+        re.compile(r'^(?:true|True|TRUE|false|False|FALSE)$', re.X),
+        list('tTfF'))
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:float',
+        re.compile(r'''^(?:[-+]?(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?
+                    |[-+]?[0-9]+[eE][-+]?[0-9]+
+                    |[-+]?\.(?:inf|Inf|INF)
+                    |\.(?:nan|NaN|NAN))$''', re.X),
+        list('-+0123456789.'))
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:int',
+        re.compile(r'''^(?:0x[0-9a-fA-F]+
+                    |0o[0-7]+
+                    |[-+]?[0-9]+)$''', re.X),
+        list('-+0123456789'))
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:merge',
+        re.compile(r'^(?:<<)$'),
+        ['<'])
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:null',
+        re.compile(r'''^(?: ~
+                    |null|Null|NULL
+                    | )$''', re.X),
+        ['~', 'n', 'N', ''])
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:timestamp',
+        re.compile(r'''^(?:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]
+                    |[0-9][0-9][0-9][0-9] -[0-9][0-9]? -[0-9][0-9]?
+                     (?:[Tt]|[ \t]+)[0-9][0-9]?
+                     :[0-9][0-9] :[0-9][0-9] (?:\.[0-9]*)?
+                     (?:[ \t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?)$''', re.X),
+        list('0123456789'))
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:value',
+        re.compile(r'^(?:=)$'),
+        ['='])

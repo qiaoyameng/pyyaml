@@ -7,6 +7,13 @@ For a complete changelog, see:
 
 * TBD
 
+* Add an opt-in YAML 1.2 core schema mode: ``yaml.CoreLoader`` /
+  ``yaml.CoreDumper`` (plus ``yaml.core_load``/``yaml.core_dump`` helpers)
+  resolve and emit scalars per the YAML 1.2 core schema (``yes``/``on``
+  stay strings, ``010`` is decimal ten, ``0o``/``0x`` integer prefixes,
+  floats require a decimal point or exponent).  The YAML 1.1 rules used
+  by the existing loaders and dumpers are unchanged.
+
 6.0.2 (2024-08-06)
 
 * https://github.com/yaml/pyyaml/pull/808 -- Support for Cython 3.x and Python 3.13
@@ -275,4 +282,3 @@ For a complete changelog, see:
 * Initial release.  The version number reflects the codename
   of the project (PyYAML 3000) and differentiates it from
   the abandoned PyYaml module.
-

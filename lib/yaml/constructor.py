@@ -2,6 +2,7 @@
 __all__ = [
     'BaseConstructor',
     'SafeConstructor',
+    'CoreConstructor',
     'FullConstructor',
     'UnsafeConstructor',
     'Constructor',
@@ -481,6 +482,53 @@ SafeConstructor.add_constructor(
 
 SafeConstructor.add_constructor(None,
         SafeConstructor.construct_undefined)
+
+class CoreConstructor(SafeConstructor):
+    """
+    Construct basic Python objects according to the YAML 1.2 core schema.
+
+    Only ``true``/``false`` are booleans and integers are decimal unless
+    prefixed with ``0x`` or ``0o``.  These rules apply to explicitly
+    tagged nodes as well: an explicit tag selects the constructor, and
+    the constructor then enforces the core schema forms.
+    """
+
+    bool_values = {
+        'true':     True,
+        'false':    False,
+    }
+
+    def construct_yaml_bool(self, node):
+        value = self.construct_scalar(node)
+        try:
+            return self.bool_values[value.lower()]
+        except KeyError:
+            raise ConstructorError(None, None,
+                    "invalid boolean value %r for the YAML 1.2 core schema"
+                    % value, node.start_mark)
+
+    def construct_yaml_int(self, node):
+        value = self.construct_scalar(node)
+        value = value.replace('_', '')
+        sign = +1
+        if value[0] == '-':
+            sign = -1
+        if value[0] in '+-':
+            value = value[1:]
+        if value.startswith('0x'):
+            return sign*int(value[2:], 16)
+        elif value.startswith('0o'):
+            return sign*int(value[2:], 8)
+        else:
+            return sign*int(value)
+
+CoreConstructor.add_constructor(
+        'tag:yaml.org,2002:bool',
+        CoreConstructor.construct_yaml_bool)
+
+CoreConstructor.add_constructor(
+        'tag:yaml.org,2002:int',
+        CoreConstructor.construct_yaml_int)
 
 class FullConstructor(SafeConstructor):
     # 'extend' is blacklisted because it is used by

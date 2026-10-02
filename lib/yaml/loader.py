@@ -1,5 +1,6 @@
 
-__all__ = ['BaseLoader', 'FullLoader', 'SafeLoader', 'Loader', 'UnsafeLoader']
+__all__ = ['BaseLoader', 'FullLoader', 'SafeLoader', 'Loader', 'UnsafeLoader',
+        'CoreLoader']
 
 from .reader import *
 from .scanner import *
@@ -37,6 +38,20 @@ class SafeLoader(Reader, Scanner, Parser, Composer, SafeConstructor, Resolver):
         Composer.__init__(self)
         SafeConstructor.__init__(self)
         Resolver.__init__(self)
+
+class CoreLoader(Reader, Scanner, Parser, Composer, CoreConstructor, CoreResolver):
+    """
+    A safe loader that resolves and constructs scalars according to the
+    YAML 1.2 core schema instead of the YAML 1.1 rules used by SafeLoader.
+    """
+
+    def __init__(self, stream):
+        Reader.__init__(self, stream)
+        Scanner.__init__(self)
+        Parser.__init__(self)
+        Composer.__init__(self)
+        CoreConstructor.__init__(self)
+        CoreResolver.__init__(self)
 
 class Loader(Reader, Scanner, Parser, Composer, Constructor, Resolver):
 
