@@ -2,8 +2,11 @@
 __all__ = [
     'BaseConstructor',
     'SafeConstructor',
+    'CoreSafeConstructor',
     'FullConstructor',
+    'CoreFullConstructor',
     'UnsafeConstructor',
+    'CoreUnsafeConstructor',
     'Constructor',
     'ConstructorError'
 ]
@@ -482,6 +485,114 @@ SafeConstructor.add_constructor(
 SafeConstructor.add_constructor(None,
         SafeConstructor.construct_undefined)
 
+
+class CoreSafeConstructor(SafeConstructor):
+
+    core_bool_values = {
+        'true': True,
+        'True': True,
+        'TRUE': True,
+        'false': False,
+        'False': False,
+        'FALSE': False,
+    }
+
+    core_null_values = {'', '~', 'null', 'Null', 'NULL'}
+
+    core_int_regexp = re.compile(
+        r'''^(?P<sign>[-+])?
+            (?:(?P<decimal>[0-9]+)
+            |(?P<octal>0o[0-7]+)
+            |(?P<hex>0x[0-9a-fA-F]+))$''', re.X)
+
+    core_float_regexp = re.compile(
+        r'''^(?:
+                (?P<numeric>
+                    [-+]?(?:\.[0-9]+|[0-9]+\.[0-9]*)(?:[eE][-+]?[0-9]+)?
+                    |[-+]?[0-9]+[eE][-+]?[0-9]+
+                    |[-+]?\.(?:inf|Inf|INF))
+                |\.(?P<nan>nan|NaN|NAN)
+            )$''', re.X)
+
+    def construct_core_error(self, type_name, node):
+        return ConstructorError(
+            None, None,
+            "while constructing a YAML 1.2 core %s" % type_name,
+            node.start_mark)
+
+    def construct_yaml_bool(self, node):
+        value = self.construct_scalar(node)
+        try:
+            return CoreSafeConstructor.core_bool_values[value]
+        except KeyError:
+            raise CoreSafeConstructor.construct_core_error(self, 'bool', node)
+
+    def construct_yaml_null(self, node):
+        value = self.construct_scalar(node)
+        if value not in CoreSafeConstructor.core_null_values:
+            raise CoreSafeConstructor.construct_core_error(self, 'null', node)
+        return None
+
+    def construct_yaml_int(self, node):
+        value = self.construct_scalar(node)
+        match = CoreSafeConstructor.core_int_regexp.match(value)
+        if match is None:
+            raise CoreSafeConstructor.construct_core_error(self, 'int', node)
+        sign = -1 if match.group('sign') == '-' else 1
+        if match.group('octal') is not None:
+            base_value = match.group('octal')
+            if base_value.startswith('0o'):
+                base_value = base_value[2:]
+            return sign * int(base_value, 8)
+        if match.group('hex') is not None:
+            return sign * int(match.group('hex')[2:], 16)
+        return sign * int(match.group('decimal'), 10)
+
+    def construct_yaml_float(self, node):
+        value = self.construct_scalar(node)
+        match = CoreSafeConstructor.core_float_regexp.match(value)
+        if match is None:
+            raise CoreSafeConstructor.construct_core_error(self, 'float', node)
+        if match.group('nan') is not None:
+            return self.nan_value
+        numeric = match.group('numeric')
+        if numeric[-4:].lower() == '.inf':
+            return -self.inf_value if numeric[0] == '-' else self.inf_value
+        return float(numeric)
+
+    def construct_yaml_timestamp(self, node):
+        match = self.timestamp_regexp.match(node.value)
+        if match is None:
+            raise CoreSafeConstructor.construct_core_error(
+                self, 'timestamp', node)
+        try:
+            return SafeConstructor.construct_yaml_timestamp(self, node)
+        except ValueError:
+            raise CoreSafeConstructor.construct_core_error(
+                self, 'timestamp', node)
+
+
+CoreSafeConstructor.add_constructor(
+        'tag:yaml.org,2002:null',
+        CoreSafeConstructor.construct_yaml_null)
+
+CoreSafeConstructor.add_constructor(
+        'tag:yaml.org,2002:bool',
+        CoreSafeConstructor.construct_yaml_bool)
+
+CoreSafeConstructor.add_constructor(
+        'tag:yaml.org,2002:int',
+        CoreSafeConstructor.construct_yaml_int)
+
+CoreSafeConstructor.add_constructor(
+        'tag:yaml.org,2002:float',
+        CoreSafeConstructor.construct_yaml_float)
+
+CoreSafeConstructor.add_constructor(
+        'tag:yaml.org,2002:timestamp',
+        CoreSafeConstructor.construct_yaml_timestamp)
+
+
 class FullConstructor(SafeConstructor):
     # 'extend' is blacklisted because it is used by
     # construct_python_object_apply to add `listitems` to a newly generate
@@ -742,8 +853,47 @@ UnsafeConstructor.add_multi_constructor(
     UnsafeConstructor.construct_python_object_new)
 
 UnsafeConstructor.add_multi_constructor(
-    'tag:yaml.org,2002:python/object/apply:',
-    UnsafeConstructor.construct_python_object_apply)
+        'tag:yaml.org,2002:python/object/apply:',
+        UnsafeConstructor.construct_python_object_apply)
+
+
+class CoreFullConstructor(CoreSafeConstructor, FullConstructor):
+    pass
+
+
+class CoreUnsafeConstructor(CoreFullConstructor, UnsafeConstructor):
+    pass
+
+
+CoreFullConstructor.yaml_constructors = FullConstructor.yaml_constructors.copy()
+for tag, constructor in (
+        ('tag:yaml.org,2002:null', CoreSafeConstructor.construct_yaml_null),
+        ('tag:yaml.org,2002:bool', CoreSafeConstructor.construct_yaml_bool),
+        ('tag:yaml.org,2002:int', CoreSafeConstructor.construct_yaml_int),
+        ('tag:yaml.org,2002:float', CoreSafeConstructor.construct_yaml_float),
+        ('tag:yaml.org,2002:timestamp', CoreSafeConstructor.construct_yaml_timestamp),
+        ('tag:yaml.org,2002:python/none', CoreSafeConstructor.construct_yaml_null),
+        ('tag:yaml.org,2002:python/bool', CoreSafeConstructor.construct_yaml_bool),
+        ('tag:yaml.org,2002:python/int', CoreSafeConstructor.construct_yaml_int),
+        ('tag:yaml.org,2002:python/float', CoreSafeConstructor.construct_yaml_float)):
+    CoreFullConstructor.add_constructor(
+        tag, constructor)
+
+CoreUnsafeConstructor.yaml_constructors = \
+    UnsafeConstructor.yaml_constructors.copy()
+for tag, constructor in (
+        ('tag:yaml.org,2002:null', CoreSafeConstructor.construct_yaml_null),
+        ('tag:yaml.org,2002:bool', CoreSafeConstructor.construct_yaml_bool),
+        ('tag:yaml.org,2002:int', CoreSafeConstructor.construct_yaml_int),
+        ('tag:yaml.org,2002:float', CoreSafeConstructor.construct_yaml_float),
+        ('tag:yaml.org,2002:timestamp', CoreSafeConstructor.construct_yaml_timestamp),
+        ('tag:yaml.org,2002:python/none', CoreSafeConstructor.construct_yaml_null),
+        ('tag:yaml.org,2002:python/bool', CoreSafeConstructor.construct_yaml_bool),
+        ('tag:yaml.org,2002:python/int', CoreSafeConstructor.construct_yaml_int),
+        ('tag:yaml.org,2002:python/float', CoreSafeConstructor.construct_yaml_float)):
+    CoreUnsafeConstructor.add_constructor(
+        tag, constructor)
+
 
 # Constructor is same as UnsafeConstructor. Need to leave this in place in case
 # people have extended it directly.

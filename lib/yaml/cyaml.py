@@ -12,41 +12,48 @@ from .serializer import *
 from .representer import *
 
 from .resolver import *
+from .loader import select_loader_schema
+from .dumper import select_dumper_schema
 
 class CBaseLoader(CParser, BaseConstructor, BaseResolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, schema=None):
         CParser.__init__(self, stream)
         BaseConstructor.__init__(self)
         BaseResolver.__init__(self)
+        select_loader_schema(self, schema)
 
 class CSafeLoader(CParser, SafeConstructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, schema=None):
         CParser.__init__(self, stream)
         SafeConstructor.__init__(self)
         Resolver.__init__(self)
+        select_loader_schema(self, schema)
 
 class CFullLoader(CParser, FullConstructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, schema=None):
         CParser.__init__(self, stream)
         FullConstructor.__init__(self)
         Resolver.__init__(self)
+        select_loader_schema(self, schema)
 
 class CUnsafeLoader(CParser, UnsafeConstructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, schema=None):
         CParser.__init__(self, stream)
         UnsafeConstructor.__init__(self)
         Resolver.__init__(self)
+        select_loader_schema(self, schema)
 
 class CLoader(CParser, Constructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, schema=None):
         CParser.__init__(self, stream)
         Constructor.__init__(self)
         Resolver.__init__(self)
+        select_loader_schema(self, schema)
 
 class CBaseDumper(CEmitter, BaseRepresenter, BaseResolver):
 
@@ -55,7 +62,7 @@ class CBaseDumper(CEmitter, BaseRepresenter, BaseResolver):
             canonical=None, indent=None, width=None,
             allow_unicode=None, line_break=None,
             encoding=None, explicit_start=None, explicit_end=None,
-            version=None, tags=None, sort_keys=True):
+            version=None, tags=None, sort_keys=True, schema=None):
         CEmitter.__init__(self, stream, canonical=canonical,
                 indent=indent, width=width, encoding=encoding,
                 allow_unicode=allow_unicode, line_break=line_break,
@@ -64,6 +71,7 @@ class CBaseDumper(CEmitter, BaseRepresenter, BaseResolver):
         Representer.__init__(self, default_style=default_style,
                 default_flow_style=default_flow_style, sort_keys=sort_keys)
         Resolver.__init__(self)
+        select_dumper_schema(self, schema)
 
 class CSafeDumper(CEmitter, SafeRepresenter, Resolver):
 
@@ -72,7 +80,7 @@ class CSafeDumper(CEmitter, SafeRepresenter, Resolver):
             canonical=None, indent=None, width=None,
             allow_unicode=None, line_break=None,
             encoding=None, explicit_start=None, explicit_end=None,
-            version=None, tags=None, sort_keys=True):
+            version=None, tags=None, sort_keys=True, schema=None):
         CEmitter.__init__(self, stream, canonical=canonical,
                 indent=indent, width=width, encoding=encoding,
                 allow_unicode=allow_unicode, line_break=line_break,
@@ -81,6 +89,7 @@ class CSafeDumper(CEmitter, SafeRepresenter, Resolver):
         SafeRepresenter.__init__(self, default_style=default_style,
                 default_flow_style=default_flow_style, sort_keys=sort_keys)
         Resolver.__init__(self)
+        select_dumper_schema(self, schema)
 
 class CDumper(CEmitter, Serializer, Representer, Resolver):
 
@@ -89,7 +98,7 @@ class CDumper(CEmitter, Serializer, Representer, Resolver):
             canonical=None, indent=None, width=None,
             allow_unicode=None, line_break=None,
             encoding=None, explicit_start=None, explicit_end=None,
-            version=None, tags=None, sort_keys=True):
+            version=None, tags=None, sort_keys=True, schema=None):
         CEmitter.__init__(self, stream, canonical=canonical,
                 indent=indent, width=width, encoding=encoding,
                 allow_unicode=allow_unicode, line_break=line_break,
@@ -98,4 +107,4 @@ class CDumper(CEmitter, Serializer, Representer, Resolver):
         Representer.__init__(self, default_style=default_style,
                 default_flow_style=default_flow_style, sort_keys=sort_keys)
         Resolver.__init__(self)
-
+        select_dumper_schema(self, schema)

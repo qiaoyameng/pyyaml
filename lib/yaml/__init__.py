@@ -71,30 +71,30 @@ def compose_all(stream, Loader=Loader):
     finally:
         loader.dispose()
 
-def load(stream, Loader):
+def load(stream, Loader, schema=None):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
     """
-    loader = Loader(stream)
+    loader = Loader(stream, schema=schema) if schema is not None else Loader(stream)
     try:
         return loader.get_single_data()
     finally:
         loader.dispose()
 
-def load_all(stream, Loader):
+def load_all(stream, Loader, schema=None):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
     """
-    loader = Loader(stream)
+    loader = Loader(stream, schema=schema) if schema is not None else Loader(stream)
     try:
         while loader.check_data():
             yield loader.get_data()
     finally:
         loader.dispose()
 
-def full_load(stream):
+def full_load(stream, schema=None):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
@@ -102,9 +102,9 @@ def full_load(stream):
     Resolve all tags except those known to be
     unsafe on untrusted input.
     """
-    return load(stream, FullLoader)
+    return load(stream, FullLoader, schema=schema)
 
-def full_load_all(stream):
+def full_load_all(stream, schema=None):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
@@ -112,9 +112,9 @@ def full_load_all(stream):
     Resolve all tags except those known to be
     unsafe on untrusted input.
     """
-    return load_all(stream, FullLoader)
+    return load_all(stream, FullLoader, schema=schema)
 
-def safe_load(stream):
+def safe_load(stream, schema=None):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
@@ -122,9 +122,9 @@ def safe_load(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
-    return load(stream, SafeLoader)
+    return load(stream, SafeLoader, schema=schema)
 
-def safe_load_all(stream):
+def safe_load_all(stream, schema=None):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
@@ -132,9 +132,9 @@ def safe_load_all(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
-    return load_all(stream, SafeLoader)
+    return load_all(stream, SafeLoader, schema=schema)
 
-def unsafe_load(stream):
+def unsafe_load(stream, schema=None):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
@@ -142,9 +142,9 @@ def unsafe_load(stream):
     Resolve all tags, even those known to be
     unsafe on untrusted input.
     """
-    return load(stream, UnsafeLoader)
+    return load(stream, UnsafeLoader, schema=schema)
 
-def unsafe_load_all(stream):
+def unsafe_load_all(stream, schema=None):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
@@ -152,7 +152,7 @@ def unsafe_load_all(stream):
     Resolve all tags, even those known to be
     unsafe on untrusted input.
     """
-    return load_all(stream, UnsafeLoader)
+    return load_all(stream, UnsafeLoader, schema=schema)
 
 def emit(events, stream=None, Dumper=Dumper,
         canonical=None, indent=None, width=None,
@@ -217,7 +217,7 @@ def dump_all(documents, stream=None, Dumper=Dumper,
         canonical=None, indent=None, width=None,
         allow_unicode=None, line_break=None,
         encoding=None, explicit_start=None, explicit_end=None,
-        version=None, tags=None, sort_keys=True):
+        version=None, tags=None, sort_keys=True, schema=None):
     """
     Serialize a sequence of Python objects into a YAML stream.
     If stream is None, return the produced string instead.
@@ -229,12 +229,16 @@ def dump_all(documents, stream=None, Dumper=Dumper,
         else:
             stream = io.BytesIO()
         getvalue = stream.getvalue
-    dumper = Dumper(stream, default_style=default_style,
+    dumper_kwargs = dict(default_style=default_style,
             default_flow_style=default_flow_style,
             canonical=canonical, indent=indent, width=width,
             allow_unicode=allow_unicode, line_break=line_break,
             encoding=encoding, version=version, tags=tags,
-            explicit_start=explicit_start, explicit_end=explicit_end, sort_keys=sort_keys)
+            explicit_start=explicit_start, explicit_end=explicit_end,
+            sort_keys=sort_keys)
+    if schema is not None:
+        dumper_kwargs['schema'] = schema
+    dumper = Dumper(stream, **dumper_kwargs)
     try:
         dumper.open()
         for data in documents:
@@ -387,4 +391,3 @@ class YAMLObject(metaclass=YAMLObjectMetaclass):
         """
         return dumper.represent_yaml_object(cls.yaml_tag, data, cls,
                 flow_style=cls.yaml_flow_style)
-

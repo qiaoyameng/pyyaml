@@ -1,5 +1,6 @@
 
-__all__ = ['BaseRepresenter', 'SafeRepresenter', 'Representer',
+__all__ = ['BaseRepresenter', 'SafeRepresenter', 'CoreSafeRepresenter',
+    'Representer', 'CoreRepresenter',
     'RepresenterError']
 
 from .error import *
@@ -269,6 +270,25 @@ SafeRepresenter.add_representer(datetime.datetime,
 SafeRepresenter.add_representer(None,
         SafeRepresenter.represent_undefined)
 
+
+class CoreSafeRepresenter(SafeRepresenter):
+
+    def represent_date(self, data):
+        value = data.isoformat()
+        return self.represent_scalar('tag:yaml.org,2002:timestamp', value)
+
+    def represent_datetime(self, data):
+        value = data.isoformat(' ')
+        return self.represent_scalar('tag:yaml.org,2002:timestamp', value)
+
+
+CoreSafeRepresenter.add_representer(datetime.date,
+        CoreSafeRepresenter.represent_date)
+
+CoreSafeRepresenter.add_representer(datetime.datetime,
+        CoreSafeRepresenter.represent_datetime)
+
+
 class Representer(SafeRepresenter):
 
     def represent_complex(self, data):
@@ -387,3 +407,15 @@ Representer.add_representer(types.ModuleType,
 Representer.add_multi_representer(object,
         Representer.represent_object)
 
+
+class CoreRepresenter(CoreSafeRepresenter, Representer):
+    pass
+
+
+CoreRepresenter.yaml_representers = Representer.yaml_representers.copy()
+for data_type in (datetime.date, datetime.datetime):
+    CoreRepresenter.add_representer(
+        data_type, CoreSafeRepresenter.yaml_representers[data_type])
+
+CoreRepresenter.yaml_multi_representers = \
+    Representer.yaml_multi_representers.copy()

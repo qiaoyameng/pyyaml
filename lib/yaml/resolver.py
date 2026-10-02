@@ -1,5 +1,5 @@
 
-__all__ = ['BaseResolver', 'Resolver']
+__all__ = ['BaseResolver', 'Resolver', 'CoreResolver']
 
 from .error import *
 from .nodes import *
@@ -225,3 +225,50 @@ Resolver.add_implicit_resolver(
         re.compile(r'^(?:!|&|\*)$'),
         list('!&*'))
 
+
+class CoreResolver(BaseResolver):
+    pass
+
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:null',
+        re.compile(r'^(?:~|null|Null|NULL|)$'),
+        ['~', 'n', 'N', ''])
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:bool',
+        re.compile(r'^(?:true|True|TRUE|false|False|FALSE)$'),
+        list('tTfF'))
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:int',
+        re.compile(r'''^(?:[-+]?0o[0-7]+
+                    |[-+]?0x[0-9a-fA-F]+
+                    |[-+]?[0-9]+)$''', re.X),
+        list('-+0123456789'))
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:float',
+        re.compile(r'''^(?:[-+]?(?:\.[0-9]+|[0-9][0-9]*\.[0-9]*)
+                        (?:[eE][-+]?[0-9]+)?
+                    |[-+]?[0-9][0-9]*[eE][-+]?[0-9]+
+                    |[-+]?\.(?:inf|Inf|INF)
+                    |\.(?:nan|NaN|NAN))$''', re.X),
+        list('-+0123456789.'))
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:merge',
+        re.compile(r'^(?:<<)$'),
+        ['<'])
+
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:value',
+        re.compile(r'^(?:=)$'),
+        ['='])
+
+# The following resolver is only for documentation purposes. It cannot work
+# because plain scalars cannot start with '!', '&', or '*'.
+CoreResolver.add_implicit_resolver(
+        'tag:yaml.org,2002:yaml',
+        re.compile(r'^(?:!|&|\*)$'),
+        list('!&*'))
