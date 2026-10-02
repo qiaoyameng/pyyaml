@@ -1,11 +1,14 @@
 
-__all__ = ['BaseRepresenter', 'SafeRepresenter', 'Representer',
+__all__ = ['BaseRepresenter', 'SafeRepresenter',
+    'SafePreservingRepresenter', 'SafeTagPreservingRepresenter',
+    'Representer',
     'RepresenterError']
 
 from .error import *
 from .nodes import *
+from .tagged import *
 
-import datetime, copyreg, types, base64, collections
+import datetime, copyreg, types, base64, collections, collections.abc
 
 class RepresenterError(YAMLError):
     pass
@@ -269,6 +272,50 @@ SafeRepresenter.add_representer(datetime.datetime,
 SafeRepresenter.add_representer(None,
         SafeRepresenter.represent_undefined)
 
+
+class SafePreservingRepresenter(SafeRepresenter):
+
+    def represent(self, data):
+        tag_sets = getattr(self, 'document_tag_sets', None)
+        if isinstance(tag_sets, list):
+            document_index = getattr(self, 'document_index', 0)
+            if document_index >= len(tag_sets):
+                raise RepresenterError(
+                        "not enough tag directive sets for documents")
+            self.use_tags = tag_sets[document_index]
+        super().represent(data)
+        if isinstance(tag_sets, list):
+            self.document_index = document_index + 1
+
+    def ignore_aliases(self, data):
+        if isinstance(data, TaggedValue):
+            return False
+        return super().ignore_aliases(data)
+
+    def represent_tagged_value(self, data):
+        value = data.value
+        if isinstance(value, (list, tuple)):
+            node = self.represent_sequence(data.tag, value)
+        elif isinstance(value, collections.abc.Mapping):
+            node = self.represent_mapping(data.tag, value)
+        else:
+            alias_key = self.alias_key
+            value_node = self.represent_data(value)
+            if not isinstance(value_node, ScalarNode):
+                raise RepresenterError(
+                        "tagged scalar value must represent as a scalar")
+            node = ScalarNode(data.tag, value_node.value,
+                    style=value_node.style)
+            if alias_key is not None:
+                self.represented_objects[alias_key] = node
+        return node
+
+
+SafePreservingRepresenter.add_representer(TaggedValue,
+        SafePreservingRepresenter.represent_tagged_value)
+
+SafeTagPreservingRepresenter = SafePreservingRepresenter
+
 class Representer(SafeRepresenter):
 
     def represent_complex(self, data):
@@ -386,4 +433,3 @@ Representer.add_representer(types.ModuleType,
 
 Representer.add_multi_representer(object,
         Representer.represent_object)
-

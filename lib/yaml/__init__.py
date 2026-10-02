@@ -4,6 +4,7 @@ from .error import *
 from .tokens import *
 from .events import *
 from .nodes import *
+from .tagged import *
 
 from .loader import *
 from .dumper import *
@@ -114,7 +115,7 @@ def full_load_all(stream):
     """
     return load_all(stream, FullLoader)
 
-def safe_load(stream):
+def safe_load(stream, preserve_tags=False):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
@@ -122,9 +123,10 @@ def safe_load(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
-    return load(stream, SafeLoader)
+    return load(stream, SafeTagPreservingLoader if preserve_tags
+            else SafeLoader)
 
-def safe_load_all(stream):
+def safe_load_all(stream, preserve_tags=False):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
@@ -132,7 +134,17 @@ def safe_load_all(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
-    return load_all(stream, SafeLoader)
+    return load_all(stream, SafeTagPreservingLoader if preserve_tags
+            else SafeLoader)
+
+def safe_preserving_load(stream):
+    return load(stream, SafePreservingLoader)
+
+def safe_preserving_load_all(stream):
+    return load_all(stream, SafePreservingLoader)
+
+preserving_load = safe_preserving_load
+preserving_load_all = safe_preserving_load_all
 
 def unsafe_load(stream):
     """
@@ -252,21 +264,38 @@ def dump(data, stream=None, Dumper=Dumper, **kwds):
     """
     return dump_all([data], stream, Dumper=Dumper, **kwds)
 
-def safe_dump_all(documents, stream=None, **kwds):
+def safe_dump_all(documents, stream=None, preserve_tags=False, **kwds):
     """
     Serialize a sequence of Python objects into a YAML stream.
     Produce only basic YAML tags.
     If stream is None, return the produced string instead.
     """
-    return dump_all(documents, stream, Dumper=SafeDumper, **kwds)
+    return dump_all(documents, stream,
+            Dumper=SafeTagPreservingDumper if preserve_tags else SafeDumper,
+            **kwds)
 
-def safe_dump(data, stream=None, **kwds):
+def safe_dump(data, stream=None, preserve_tags=False, **kwds):
     """
     Serialize a Python object into a YAML stream.
     Produce only basic YAML tags.
     If stream is None, return the produced string instead.
     """
-    return dump_all([data], stream, Dumper=SafeDumper, **kwds)
+    return dump_all([data], stream,
+            Dumper=SafeTagPreservingDumper if preserve_tags else SafeDumper,
+            **kwds)
+
+def safe_preserving_dump_all(documents, stream=None, **kwds):
+    return dump_all(documents, stream, Dumper=SafePreservingDumper, **kwds)
+
+def safe_preserving_dump(data, stream=None, **kwds):
+    return dump_all([data], stream, Dumper=SafePreservingDumper, **kwds)
+
+preserving_dump_all = safe_preserving_dump_all
+preserving_dump = safe_preserving_dump
+safe_tag_preserving_load = safe_preserving_load
+safe_tag_preserving_load_all = safe_preserving_load_all
+safe_tag_preserving_dump_all = safe_preserving_dump_all
+safe_tag_preserving_dump = safe_preserving_dump
 
 def add_implicit_resolver(tag, regexp, first=None,
         Loader=None, Dumper=Dumper):
@@ -387,4 +416,3 @@ class YAMLObject(metaclass=YAMLObjectMetaclass):
         """
         return dumper.represent_yaml_object(cls.yaml_tag, data, cls,
                 flow_style=cls.yaml_flow_style)
-

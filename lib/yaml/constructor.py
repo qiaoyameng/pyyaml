@@ -2,6 +2,8 @@
 __all__ = [
     'BaseConstructor',
     'SafeConstructor',
+    'SafePreservingConstructor',
+    'SafeTagPreservingConstructor',
     'FullConstructor',
     'UnsafeConstructor',
     'Constructor',
@@ -10,6 +12,7 @@ __all__ = [
 
 from .error import *
 from .nodes import *
+from .tagged import *
 
 import collections.abc, datetime, base64, binascii, re, sys, types
 
@@ -481,6 +484,39 @@ SafeConstructor.add_constructor(
 
 SafeConstructor.add_constructor(None,
         SafeConstructor.construct_undefined)
+
+
+class SafePreservingConstructor(SafeConstructor):
+
+    def construct_tagged_value(self, node):
+        if isinstance(node, ScalarNode):
+            return TaggedValue(node.tag, self.construct_scalar(node))
+        return self.construct_tagged_collection(node)
+
+    def construct_tagged_collection(self, node):
+        if isinstance(node, SequenceNode):
+            value = []
+            data = TaggedValue(node.tag, value)
+            yield data
+            value.extend(self.construct_sequence(node))
+            return
+
+        if isinstance(node, MappingNode):
+            value = {}
+            data = TaggedValue(node.tag, value)
+            yield data
+            value.update(self.construct_mapping(node))
+            return
+
+        raise ConstructorError(None, None,
+                "expected a scalar, sequence, or mapping node, but found %s"
+                % node.id, node.start_mark)
+
+
+SafePreservingConstructor.add_constructor(None,
+        SafePreservingConstructor.construct_tagged_value)
+
+SafeTagPreservingConstructor = SafePreservingConstructor
 
 class FullConstructor(SafeConstructor):
     # 'extend' is blacklisted because it is used by
