@@ -1,7 +1,8 @@
 
 __all__ = [
-    'CBaseLoader', 'CSafeLoader', 'CFullLoader', 'CUnsafeLoader', 'CLoader',
-    'CBaseDumper', 'CSafeDumper', 'CDumper'
+    'CBaseLoader', 'CSafeLoader', 'CTagPreservingSafeLoader',
+    'CFullLoader', 'CUnsafeLoader', 'CLoader',
+    'CBaseDumper', 'CSafeDumper', 'CTagPreservingSafeDumper', 'CDumper'
 ]
 
 from yaml._yaml import CParser, CEmitter
@@ -25,6 +26,14 @@ class CSafeLoader(CParser, SafeConstructor, Resolver):
     def __init__(self, stream):
         CParser.__init__(self, stream)
         SafeConstructor.__init__(self)
+        Resolver.__init__(self)
+
+class CTagPreservingSafeLoader(CParser,
+        TagPreservingSafeConstructor, Resolver):
+
+    def __init__(self, stream):
+        CParser.__init__(self, stream)
+        TagPreservingSafeConstructor.__init__(self)
         Resolver.__init__(self)
 
 class CFullLoader(CParser, FullConstructor, Resolver):
@@ -65,6 +74,7 @@ class CBaseDumper(CEmitter, BaseRepresenter, BaseResolver):
                 default_flow_style=default_flow_style, sort_keys=sort_keys)
         Resolver.__init__(self)
 
+
 class CSafeDumper(CEmitter, SafeRepresenter, Resolver):
 
     def __init__(self, stream,
@@ -79,6 +89,25 @@ class CSafeDumper(CEmitter, SafeRepresenter, Resolver):
                 explicit_start=explicit_start, explicit_end=explicit_end,
                 version=version, tags=tags)
         SafeRepresenter.__init__(self, default_style=default_style,
+                default_flow_style=default_flow_style, sort_keys=sort_keys)
+        Resolver.__init__(self)
+
+class CTagPreservingSafeDumper(CEmitter, TagPreservingSafeRepresenter,
+        Resolver):
+
+    def __init__(self, stream,
+            default_style=None, default_flow_style=False,
+            canonical=None, indent=None, width=None,
+            allow_unicode=None, line_break=None,
+            encoding=None, explicit_start=None, explicit_end=None,
+            version=None, tags=None, sort_keys=True):
+        CEmitter.__init__(self, stream, canonical=canonical,
+                indent=indent, width=width, encoding=encoding,
+                allow_unicode=allow_unicode, line_break=line_break,
+                explicit_start=explicit_start, explicit_end=explicit_end,
+                version=version, tags=tags)
+        TagPreservingSafeRepresenter.__init__(self,
+                default_style=default_style,
                 default_flow_style=default_flow_style, sort_keys=sort_keys)
         Resolver.__init__(self)
 
@@ -98,4 +127,3 @@ class CDumper(CEmitter, Serializer, Representer, Resolver):
         Representer.__init__(self, default_style=default_style,
                 default_flow_style=default_flow_style, sort_keys=sort_keys)
         Resolver.__init__(self)
-

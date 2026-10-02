@@ -2,6 +2,7 @@
 __all__ = [
     'BaseConstructor',
     'SafeConstructor',
+    'TagPreservingSafeConstructor',
     'FullConstructor',
     'UnsafeConstructor',
     'Constructor',
@@ -10,6 +11,7 @@ __all__ = [
 
 from .error import *
 from .nodes import *
+from .tagged import *
 
 import collections.abc, datetime, base64, binascii, re, sys, types
 
@@ -481,6 +483,34 @@ SafeConstructor.add_constructor(
 
 SafeConstructor.add_constructor(None,
         SafeConstructor.construct_undefined)
+
+
+class TagPreservingSafeConstructor(SafeConstructor):
+
+    def construct_undefined(self, node):
+        if isinstance(node, ScalarNode):
+            return TaggedValue(node.tag, self.construct_scalar(node))
+        if isinstance(node, SequenceNode):
+            return self.construct_undefined_sequence(node)
+        if isinstance(node, MappingNode):
+            return self.construct_undefined_mapping(node)
+        raise ConstructorError(None, None,
+                "cannot preserve unsupported node type %r" % node.id,
+                node.start_mark)
+
+    def construct_undefined_sequence(self, node):
+        data = TaggedValue(node.tag, [])
+        yield data
+        data.value = self.construct_sequence(node)
+
+    def construct_undefined_mapping(self, node):
+        data = TaggedValue(node.tag, {})
+        yield data
+        data.value = self.construct_mapping(node)
+
+
+TagPreservingSafeConstructor.add_constructor(
+        None, TagPreservingSafeConstructor.construct_undefined)
 
 class FullConstructor(SafeConstructor):
     # 'extend' is blacklisted because it is used by

@@ -1,9 +1,14 @@
 
-__all__ = ['BaseRepresenter', 'SafeRepresenter', 'Representer',
+__all__ = [
+    'BaseRepresenter',
+    'SafeRepresenter',
+    'TagPreservingSafeRepresenter',
+    'Representer',
     'RepresenterError']
 
 from .error import *
 from .nodes import *
+from .tagged import *
 
 import datetime, copyreg, types, base64, collections
 
@@ -269,6 +274,23 @@ SafeRepresenter.add_representer(datetime.datetime,
 SafeRepresenter.add_representer(None,
         SafeRepresenter.represent_undefined)
 
+
+class TagPreservingSafeRepresenter(SafeRepresenter):
+    def represent_tagged_value(self, data):
+        if isinstance(data.value, str):
+            return self.represent_scalar(data.tag, data.value)
+        if isinstance(data.value, list):
+            return self.represent_sequence(data.tag, data.value)
+        if isinstance(data.value, dict):
+            return self.represent_mapping(data.tag, data.value)
+        raise RepresenterError(
+                "cannot represent tagged value with type %s"
+                % type(data.value).__name__, data)
+
+
+TagPreservingSafeRepresenter.add_representer(
+        TaggedValue, TagPreservingSafeRepresenter.represent_tagged_value)
+
 class Representer(SafeRepresenter):
 
     def represent_complex(self, data):
@@ -386,4 +408,3 @@ Representer.add_representer(types.ModuleType,
 
 Representer.add_multi_representer(object,
         Representer.represent_object)
-
