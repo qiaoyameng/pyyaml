@@ -5,7 +5,13 @@ For a complete changelog, see:
 
 7.0.0.dev0 (TBD)
 
-* TBD
+* Add a preserving mapping representation (`PreservedMapping`).  Load with
+  `yaml.safe_load(stream, preserve=True)` or the `PreservingSafeLoader` to
+  receive mappings as ordered key/value entries that keep complex
+  (unhashable) keys, duplicate keys and YAML type distinctions (e.g. `1` vs
+  `true`).  Keys and values still follow the safe construction rules, and
+  `safe_dump` round-trips the representation; plain `safe_load` is unchanged
+  and still returns `dict`.
 
 6.0.2 (2024-08-06)
 

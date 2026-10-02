@@ -7,6 +7,7 @@ from .nodes import *
 
 from .loader import *
 from .dumper import *
+from .preserving import *
 
 __version__ = '7.0.0.dev0'
 try:
@@ -114,7 +115,7 @@ def full_load_all(stream):
     """
     return load_all(stream, FullLoader)
 
-def safe_load(stream):
+def safe_load(stream, preserve=False):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
@@ -122,9 +123,11 @@ def safe_load(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
+    if preserve:
+        return load(stream, PreservingSafeLoader)
     return load(stream, SafeLoader)
 
-def safe_load_all(stream):
+def safe_load_all(stream, preserve=False):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
@@ -132,6 +135,8 @@ def safe_load_all(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
+    if preserve:
+        return load_all(stream, PreservingSafeLoader)
     return load_all(stream, SafeLoader)
 
 def unsafe_load(stream):
