@@ -1,5 +1,6 @@
 
 __all__ = [
+    'DuplicateKeyPolicy',
     'BaseConstructor',
     'SafeConstructor',
     'FullConstructor',
@@ -15,6 +16,35 @@ import collections.abc, datetime, base64, binascii, re, sys, types
 
 class ConstructorError(MarkedYAMLError):
     pass
+
+class DuplicateKeyPolicy:
+    REJECT = 'reject'
+    FIRST = 'first'
+    LAST = 'last'
+    ERROR = REJECT
+    KEEP_FIRST = FIRST
+    KEEP_LAST = LAST
+    FIRST_WINS = FIRST
+    LAST_WINS = LAST
+
+_DUPLICATE_KEY_POLICY_ALIASES = {
+    'reject': DuplicateKeyPolicy.REJECT,
+    'first': DuplicateKeyPolicy.FIRST,
+    'last': DuplicateKeyPolicy.LAST,
+    'keep_first': DuplicateKeyPolicy.FIRST,
+    'keep_last': DuplicateKeyPolicy.LAST,
+}
+
+def _normalize_duplicate_key_policy(policy):
+    if policy is None:
+        return DuplicateKeyPolicy.LAST
+    try:
+        normalized = _DUPLICATE_KEY_POLICY_ALIASES[policy]
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            "duplicate_key_policy must be one of 'reject', 'first', or 'last'"
+        ) from error
+    return normalized
 
 class BaseConstructor:
 
@@ -170,6 +200,12 @@ class BaseConstructor:
 
 class SafeConstructor(BaseConstructor):
 
+    def __init__(self, duplicate_key_policy=None):
+        super().__init__()
+        self.duplicate_key_policy = _normalize_duplicate_key_policy(duplicate_key_policy)
+        self._mapping_parts_cache = {}
+        self._mapping_paths = {}
+
     def construct_scalar(self, node):
         if isinstance(node, MappingNode):
             for key_node, value_node in node.value:
@@ -177,7 +213,148 @@ class SafeConstructor(BaseConstructor):
                     return self.construct_scalar(value_node)
         return super().construct_scalar(node)
 
+    def construct_document(self, node):
+        self._mapping_parts_cache = {}
+        self._index_mapping_paths(node)
+        try:
+            return super().construct_document(node)
+        finally:
+            self._mapping_parts_cache = {}
+            self._mapping_paths = {}
+
+    def _index_mapping_paths(self, node):
+        mapping_paths = {}
+        visited = set()
+
+        def visit(current_node, path):
+            node_id = id(current_node)
+            if node_id in visited:
+                return
+            visited.add(node_id)
+
+            if isinstance(current_node, MappingNode):
+                mapping_paths[node_id] = path
+                for key_node, value_node in current_node.value:
+                    key_path = self._mapping_path_key(key_node)
+                    visit(key_node, path + ('[' + key_path + ']',))
+                    visit(value_node, path + (key_path,))
+            elif isinstance(current_node, SequenceNode):
+                for index, child_node in enumerate(current_node.value):
+                    visit(child_node, path + ('[%d]' % index,))
+
+        visit(node, ())
+        self._mapping_paths = mapping_paths
+
+    def _mapping_path_key(self, node):
+        if isinstance(node, ScalarNode):
+            return node.value
+        return '?'
+
+    def _format_mapping_path(self, node):
+        path = ''
+        for part in self._mapping_paths.get(id(node), ()):
+            if part.startswith('['):
+                path += part
+            else:
+                path += '.' + part
+        return '<root>' + path
+
+    def _construct_mapping_key(self, node, key_node, deep):
+        if key_node.tag == 'tag:yaml.org,2002:value':
+            return self.construct_scalar(key_node)
+        key = self.construct_object(key_node, deep=deep)
+        if not isinstance(key, collections.abc.Hashable):
+            raise ConstructorError("while constructing a mapping", node.start_mark,
+                    "found unhashable key", key_node.start_mark)
+        return key
+
+    def _resolve_explicit_pairs(self, node, pairs, deep):
+        policy = self.duplicate_key_policy
+        resolved_pairs = []
+        first_key_nodes = {}
+
+        for key_node, value_node in pairs:
+            key = self._construct_mapping_key(node, key_node, deep)
+            if policy == DuplicateKeyPolicy.FIRST:
+                if key in first_key_nodes:
+                    continue
+                first_key_nodes[key] = key_node
+            elif policy == DuplicateKeyPolicy.REJECT and key in first_key_nodes:
+                first_key_node = first_key_nodes[key]
+                raise ConstructorError(
+                        "while constructing a mapping", first_key_node.start_mark,
+                        "found duplicate key %r" % (key,), key_node.start_mark,
+                        "mapping path: %s" % self._format_mapping_path(node))
+            else:
+                first_key_nodes.setdefault(key, key_node)
+            resolved_pairs.append((key_node, value_node))
+
+        return resolved_pairs
+
+    def _mapping_parts(self, node, deep=False, active=None):
+        cache_key = id(node)
+        try:
+            return self._mapping_parts_cache[cache_key]
+        except KeyError:
+            pass
+
+        if active is None:
+            active = set()
+        if cache_key in active:
+            return [], []
+        active.add(cache_key)
+
+        explicit_pairs = []
+        merge_nodes = []
+        for key_node, value_node in node.value:
+            if key_node.tag == 'tag:yaml.org,2002:merge':
+                merge_nodes.append(value_node)
+            else:
+                explicit_pairs.append((key_node, value_node))
+
+        inherited_pairs = []
+        inherited_key_nodes = set()
+
+        def add_pairs(pairs):
+            for pair in pairs:
+                key_id = id(pair[0])
+                if key_id not in inherited_key_nodes:
+                    inherited_key_nodes.add(key_id)
+                    inherited_pairs.append(pair)
+
+        def add_mapping(source_node):
+            if not isinstance(source_node, MappingNode):
+                raise ConstructorError("while constructing a mapping",
+                        node.start_mark,
+                        "expected a mapping or list of mappings for merging, "
+                        "but found %s" % source_node.id, source_node.start_mark)
+            source_inherited, source_explicit = self._mapping_parts(
+                    source_node, deep=deep, active=active)
+            add_pairs(source_explicit + source_inherited)
+
+        for merge_node in merge_nodes:
+            if isinstance(merge_node, MappingNode):
+                add_mapping(merge_node)
+            elif isinstance(merge_node, SequenceNode):
+                for subnode in merge_node.value:
+                    if not isinstance(subnode, MappingNode):
+                        raise ConstructorError("while constructing a mapping",
+                                node.start_mark,
+                                "expected a mapping for merging, but found %s"
+                                % subnode.id, subnode.start_mark)
+                    add_mapping(subnode)
+            else:
+                raise ConstructorError("while constructing a mapping", node.start_mark,
+                        "expected a mapping or list of mappings for merging, but found %s"
+                        % merge_node.id, merge_node.start_mark)
+
+        self._resolve_explicit_pairs(node, explicit_pairs, deep)
+        parts = (inherited_pairs, explicit_pairs)
+        self._mapping_parts_cache[cache_key] = parts
+        return parts
+
     def flatten_mapping(self, node):
+        node._yaml_flattened = True
         merge = []
         merge_key_ids = set()  # anchor referent node objects should have reference equality here
         index = 0
@@ -216,9 +393,27 @@ class SafeConstructor(BaseConstructor):
             node.value = merge + node.value
 
     def construct_mapping(self, node, deep=False):
-        if isinstance(node, MappingNode):
-            self.flatten_mapping(node)
-        return super().construct_mapping(node, deep=deep)
+        if not isinstance(node, MappingNode):
+            return super().construct_mapping(node, deep=deep)
+        if getattr(node, '_yaml_flattened', False):
+            return super().construct_mapping(node, deep=deep)
+
+        inherited_pairs, explicit_pairs = self._mapping_parts(node, deep=deep)
+        explicit_pairs = self._resolve_explicit_pairs(node, explicit_pairs, deep)
+        mapping = {}
+
+        inherited_values = {}
+        for key_node, value_node in inherited_pairs:
+            key = self._construct_mapping_key(node, key_node, deep)
+            value = self.construct_object(value_node, deep=deep)
+            inherited_values.setdefault(key, value)
+        mapping.update(inherited_values)
+
+        for key_node, value_node in explicit_pairs:
+            key = self._construct_mapping_key(node, key_node, deep)
+            mapping[key] = self.construct_object(value_node, deep=deep)
+
+        return mapping
 
     def construct_yaml_null(self, node):
         self.construct_scalar(node)

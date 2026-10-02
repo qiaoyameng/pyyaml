@@ -71,23 +71,29 @@ def compose_all(stream, Loader=Loader):
     finally:
         loader.dispose()
 
-def load(stream, Loader):
+def load(stream, Loader, duplicate_key_policy=None):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
     """
-    loader = Loader(stream)
+    if duplicate_key_policy is None:
+        loader = Loader(stream)
+    else:
+        loader = Loader(stream, duplicate_key_policy=duplicate_key_policy)
     try:
         return loader.get_single_data()
     finally:
         loader.dispose()
 
-def load_all(stream, Loader):
+def load_all(stream, Loader, duplicate_key_policy=None):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
     """
-    loader = Loader(stream)
+    if duplicate_key_policy is None:
+        loader = Loader(stream)
+    else:
+        loader = Loader(stream, duplicate_key_policy=duplicate_key_policy)
     try:
         while loader.check_data():
             yield loader.get_data()
@@ -114,7 +120,7 @@ def full_load_all(stream):
     """
     return load_all(stream, FullLoader)
 
-def safe_load(stream):
+def safe_load(stream, duplicate_key_policy=None):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
@@ -122,9 +128,9 @@ def safe_load(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
-    return load(stream, SafeLoader)
+    return load(stream, SafeLoader, duplicate_key_policy=duplicate_key_policy)
 
-def safe_load_all(stream):
+def safe_load_all(stream, duplicate_key_policy=None):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
@@ -132,7 +138,7 @@ def safe_load_all(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
-    return load_all(stream, SafeLoader)
+    return load_all(stream, SafeLoader, duplicate_key_policy=duplicate_key_policy)
 
 def unsafe_load(stream):
     """
@@ -387,4 +393,3 @@ class YAMLObject(metaclass=YAMLObjectMetaclass):
         """
         return dumper.represent_yaml_object(cls.yaml_tag, data, cls,
                 flow_style=cls.yaml_flow_style)
-

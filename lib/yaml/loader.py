@@ -1,5 +1,12 @@
 
-__all__ = ['BaseLoader', 'FullLoader', 'SafeLoader', 'Loader', 'UnsafeLoader']
+__all__ = [
+    'DuplicateKeyPolicy',
+    'BaseLoader',
+    'FullLoader',
+    'SafeLoader',
+    'Loader',
+    'UnsafeLoader',
+]
 
 from .reader import *
 from .scanner import *
@@ -20,22 +27,22 @@ class BaseLoader(Reader, Scanner, Parser, Composer, BaseConstructor, BaseResolve
 
 class FullLoader(Reader, Scanner, Parser, Composer, FullConstructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, duplicate_key_policy=None):
         Reader.__init__(self, stream)
         Scanner.__init__(self)
         Parser.__init__(self)
         Composer.__init__(self)
-        FullConstructor.__init__(self)
+        FullConstructor.__init__(self, duplicate_key_policy=duplicate_key_policy)
         Resolver.__init__(self)
 
 class SafeLoader(Reader, Scanner, Parser, Composer, SafeConstructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, duplicate_key_policy=None):
         Reader.__init__(self, stream)
         Scanner.__init__(self)
         Parser.__init__(self)
         Composer.__init__(self)
-        SafeConstructor.__init__(self)
+        SafeConstructor.__init__(self, duplicate_key_policy=duplicate_key_policy)
         Resolver.__init__(self)
 
 class Loader(Reader, Scanner, Parser, Composer, Constructor, Resolver):

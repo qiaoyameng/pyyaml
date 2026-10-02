@@ -24,6 +24,17 @@ If you don't trust the input YAML stream, you should use:
 
     >>> yaml.safe_load(stream)
 
+To reject duplicate keys in the same YAML mapping, pass a duplicate-key policy:
+
+    >>> yaml.safe_load(
+    ...     stream,
+    ...     duplicate_key_policy=yaml.DuplicateKeyPolicy.REJECT,
+    ... )
+
+The available policies are `REJECT`, `FIRST` (keep the first value), and `LAST`
+(the default, keep the last value). Inherited merge keys can still be overridden
+by explicit keys in the target mapping.
+
 ## Testing
 
 PyYAML includes a comprehensive test suite.

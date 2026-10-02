@@ -22,16 +22,16 @@ class CBaseLoader(CParser, BaseConstructor, BaseResolver):
 
 class CSafeLoader(CParser, SafeConstructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, duplicate_key_policy=None):
         CParser.__init__(self, stream)
-        SafeConstructor.__init__(self)
+        SafeConstructor.__init__(self, duplicate_key_policy=duplicate_key_policy)
         Resolver.__init__(self)
 
 class CFullLoader(CParser, FullConstructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, duplicate_key_policy=None):
         CParser.__init__(self, stream)
-        FullConstructor.__init__(self)
+        FullConstructor.__init__(self, duplicate_key_policy=duplicate_key_policy)
         Resolver.__init__(self)
 
 class CUnsafeLoader(CParser, UnsafeConstructor, Resolver):
@@ -98,4 +98,3 @@ class CDumper(CEmitter, Serializer, Representer, Resolver):
         Representer.__init__(self, default_style=default_style,
                 default_flow_style=default_flow_style, sort_keys=sort_keys)
         Resolver.__init__(self)
-
