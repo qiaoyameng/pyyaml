@@ -28,6 +28,7 @@ __all__ = ['Scanner', 'ScannerError']
 
 from .error import MarkedYAMLError
 from .tokens import *
+from .resource import ResourceBudget, _ResourceBudgetTracker
 
 class ScannerError(MarkedYAMLError):
     pass
@@ -45,7 +46,7 @@ class SimpleKey:
 
 class Scanner:
 
-    def __init__(self):
+    def __init__(self, resource_tracker=None):
         """Initialize the scanner."""
         # It is assumed that Scanner and Reader will have a common descendant.
         # Reader do the dirty work of checking for BOM and converting the
@@ -108,6 +109,20 @@ class Scanner:
         # '[', or '{' tokens.
         self.possible_simple_keys = {}
 
+        if resource_tracker is None:
+            resource_tracker = _ResourceBudgetTracker(
+                    ResourceBudget.unlimited(), ResourceBudget.unlimited())
+        self.resource_tracker = resource_tracker
+
+    def charge_scalar_length(self, length, mark=None):
+        if length:
+            if mark is None:
+                mark = self.get_mark()
+            self.resource_tracker.charge_scalar(length, mark)
+
+    def refund_scalar_length(self, length):
+        self.charge_scalar_length(-length)
+
     # Public methods.
 
     def check_token(self, *choices):
@@ -139,6 +154,11 @@ class Scanner:
         if self.tokens:
             self.tokens_taken += 1
             return self.tokens.pop(0)
+
+    def dispose(self):
+        self.tokens = []
+        self.possible_simple_keys = {}
+        self.done = True
 
     # Private methods.
 
@@ -994,11 +1014,13 @@ class Scanner:
         if min_indent < 1:
             min_indent = 1
         if increment is None:
-            breaks, max_indent, end_mark = self.scan_block_scalar_indentation()
+            breaks, max_indent, end_mark = \
+                    self.scan_block_scalar_indentation(start_mark)
             indent = max(min_indent, max_indent)
         else:
             indent = min_indent+increment-1
-            breaks, end_mark = self.scan_block_scalar_breaks(indent)
+            breaks, end_mark = self.scan_block_scalar_breaks(
+                    indent, start_mark)
         line_break = ''
 
         # Scan the inner part of the block scalar.
@@ -1008,10 +1030,12 @@ class Scanner:
             length = 0
             while self.peek(length) not in '\0\r\n\x85\u2028\u2029':
                 length += 1
+            self.charge_scalar_length(length, start_mark)
             chunks.append(self.prefix(length))
             self.forward(length)
             line_break = self.scan_line_break()
-            breaks, end_mark = self.scan_block_scalar_breaks(indent)
+            breaks, end_mark = self.scan_block_scalar_breaks(
+                    indent, start_mark)
             if self.column == indent and self.peek() != '\0':
 
                 # Unfortunately, folding rules are ambiguous.
@@ -1021,9 +1045,12 @@ class Scanner:
                 if folded and line_break == '\n'    \
                         and leading_non_space and self.peek() not in ' \t':
                     if not breaks:
+                        self.refund_scalar_length(len(line_break))
                         chunks.append(' ')
+                        self.charge_scalar_length(1, start_mark)
                 else:
                     chunks.append(line_break)
+                    self.charge_scalar_length(len(line_break), start_mark)
                 
                 # This is Clark Evans's interpretation (also in the spec
                 # examples):
@@ -1042,6 +1069,7 @@ class Scanner:
         # Chomp the tail.
         if chomping is not False:
             chunks.append(line_break)
+            self.charge_scalar_length(len(line_break), start_mark)
         if chomping is True:
             chunks.extend(breaks)
 
@@ -1103,14 +1131,16 @@ class Scanner:
                     self.get_mark())
         self.scan_line_break()
 
-    def scan_block_scalar_indentation(self):
+    def scan_block_scalar_indentation(self, start_mark):
         # See the specification for details.
         chunks = []
         max_indent = 0
         end_mark = self.get_mark()
         while self.peek() in ' \r\n\x85\u2028\u2029':
             if self.peek() != ' ':
-                chunks.append(self.scan_line_break())
+                line_break = self.scan_line_break()
+                self.charge_scalar_length(len(line_break), start_mark)
+                chunks.append(line_break)
                 end_mark = self.get_mark()
             else:
                 self.forward()
@@ -1118,14 +1148,17 @@ class Scanner:
                     max_indent = self.column
         return chunks, max_indent, end_mark
 
-    def scan_block_scalar_breaks(self, indent):
+    def scan_block_scalar_breaks(self, indent, start_mark=None, charge=True):
         # See the specification for details.
         chunks = []
         end_mark = self.get_mark()
         while self.column < indent and self.peek() == ' ':
             self.forward()
         while self.peek() in '\r\n\x85\u2028\u2029':
-            chunks.append(self.scan_line_break())
+            line_break = self.scan_line_break()
+            if charge:
+                self.charge_scalar_length(len(line_break), start_mark)
+            chunks.append(line_break)
             end_mark = self.get_mark()
             while self.column < indent and self.peek() == ' ':
                 self.forward()
@@ -1146,10 +1179,16 @@ class Scanner:
         start_mark = self.get_mark()
         quote = self.peek()
         self.forward()
-        chunks.extend(self.scan_flow_scalar_non_spaces(double, start_mark))
+        non_spaces = self.scan_flow_scalar_non_spaces(
+                double, start_mark, charge=True)
+        chunks.extend(non_spaces)
         while self.peek() != quote:
-            chunks.extend(self.scan_flow_scalar_spaces(double, start_mark))
-            chunks.extend(self.scan_flow_scalar_non_spaces(double, start_mark))
+            spaces = self.scan_flow_scalar_spaces(
+                    double, start_mark, charge=True)
+            chunks.extend(spaces)
+            non_spaces = self.scan_flow_scalar_non_spaces(
+                    double, start_mark, charge=True)
+            chunks.extend(non_spaces)
         self.forward()
         end_mark = self.get_mark()
         return ScalarToken(''.join(chunks), False, start_mark, end_mark,
@@ -1182,7 +1221,7 @@ class Scanner:
         'U':    8,
     }
 
-    def scan_flow_scalar_non_spaces(self, double, start_mark):
+    def scan_flow_scalar_non_spaces(self, double, start_mark, charge=False):
         # See the specification for details.
         chunks = []
         while True:
@@ -1190,19 +1229,27 @@ class Scanner:
             while self.peek(length) not in '\'\"\\\0 \t\r\n\x85\u2028\u2029':
                 length += 1
             if length:
+                if charge:
+                    self.charge_scalar_length(length, start_mark)
                 chunks.append(self.prefix(length))
                 self.forward(length)
             ch = self.peek()
             if not double and ch == '\'' and self.peek(1) == '\'':
+                if charge:
+                    self.charge_scalar_length(1, start_mark)
                 chunks.append('\'')
                 self.forward(2)
             elif (double and ch == '\'') or (not double and ch in '\"\\'):
+                if charge:
+                    self.charge_scalar_length(1, start_mark)
                 chunks.append(ch)
                 self.forward()
             elif double and ch == '\\':
                 self.forward()
                 ch = self.peek()
                 if ch in self.ESCAPE_REPLACEMENTS:
+                    if charge:
+                        self.charge_scalar_length(1, start_mark)
                     chunks.append(self.ESCAPE_REPLACEMENTS[ch])
                     self.forward()
                 elif ch in self.ESCAPE_CODES:
@@ -1214,24 +1261,29 @@ class Scanner:
                                     "expected escape sequence of %d hexadecimal numbers, but found %r" %
                                         (length, self.peek(k)), self.get_mark())
                     code = int(self.prefix(length), 16)
+                    if charge:
+                        self.charge_scalar_length(1, start_mark)
                     chunks.append(chr(code))
                     self.forward(length)
                 elif ch in '\r\n\x85\u2028\u2029':
                     self.scan_line_break()
-                    chunks.extend(self.scan_flow_scalar_breaks(double, start_mark))
+                    chunks.extend(self.scan_flow_scalar_breaks(
+                            double, start_mark, charge=charge))
                 else:
                     raise ScannerError("while scanning a double-quoted scalar", start_mark,
                             "found unknown escape character %r" % ch, self.get_mark())
             else:
                 return chunks
 
-    def scan_flow_scalar_spaces(self, double, start_mark):
+    def scan_flow_scalar_spaces(self, double, start_mark, charge=False):
         # See the specification for details.
         chunks = []
         length = 0
         while self.peek(length) in ' \t':
             length += 1
         whitespaces = self.prefix(length)
+        if charge:
+            self.charge_scalar_length(length, start_mark)
         self.forward(length)
         ch = self.peek()
         if ch == '\0':
@@ -1239,17 +1291,22 @@ class Scanner:
                     "found unexpected end of stream", self.get_mark())
         elif ch in '\r\n\x85\u2028\u2029':
             line_break = self.scan_line_break()
-            breaks = self.scan_flow_scalar_breaks(double, start_mark)
+            breaks = self.scan_flow_scalar_breaks(
+                    double, start_mark, charge=charge)
             if line_break != '\n':
+                if charge:
+                    self.charge_scalar_length(len(line_break), start_mark)
                 chunks.append(line_break)
             elif not breaks:
+                if charge:
+                    self.charge_scalar_length(1, start_mark)
                 chunks.append(' ')
             chunks.extend(breaks)
         else:
             chunks.append(whitespaces)
         return chunks
 
-    def scan_flow_scalar_breaks(self, double, start_mark):
+    def scan_flow_scalar_breaks(self, double, start_mark, charge=False):
         # See the specification for details.
         chunks = []
         while True:
@@ -1263,7 +1320,10 @@ class Scanner:
             while self.peek() in ' \t':
                 self.forward()
             if self.peek() in '\r\n\x85\u2028\u2029':
-                chunks.append(self.scan_line_break())
+                line_break = self.scan_line_break()
+                if charge:
+                    self.charge_scalar_length(len(line_break), start_mark)
+                chunks.append(line_break)
             else:
                 return chunks
 
@@ -1298,17 +1358,19 @@ class Scanner:
             if length == 0:
                 break
             self.allow_simple_key = False
+            self.charge_scalar_length(length, start_mark)
             chunks.extend(spaces)
             chunks.append(self.prefix(length))
             self.forward(length)
             end_mark = self.get_mark()
-            spaces = self.scan_plain_spaces(indent, start_mark)
+            spaces = self.scan_plain_spaces(
+                    indent, start_mark, charge=True)
             if not spaces or self.peek() == '#' \
                     or (not self.flow_level and self.column < indent):
                 break
         return ScalarToken(''.join(chunks), True, start_mark, end_mark)
 
-    def scan_plain_spaces(self, indent, start_mark):
+    def scan_plain_spaces(self, indent, start_mark, charge=False):
         # See the specification for details.
         # The specification is really confusing about tabs in plain scalars.
         # We just forbid them completely. Do not use tabs in YAML!
@@ -1320,7 +1382,7 @@ class Scanner:
         self.forward(length)
         ch = self.peek()
         if ch in '\r\n\x85\u2028\u2029':
-            line_break = self.scan_line_break()
+            first_line_break = self.scan_line_break()
             self.allow_simple_key = True
             prefix = self.prefix(3)
             if (prefix == '---' or prefix == '...')   \
@@ -1331,17 +1393,26 @@ class Scanner:
                 if self.peek() == ' ':
                     self.forward()
                 else:
-                    breaks.append(self.scan_line_break())
+                    line_break = self.scan_line_break()
+                    if charge:
+                        self.charge_scalar_length(len(line_break), start_mark)
+                    breaks.append(line_break)
                     prefix = self.prefix(3)
                     if (prefix == '---' or prefix == '...')   \
                             and self.peek(3) in '\0 \t\r\n\x85\u2028\u2029':
                         return
-            if line_break != '\n':
-                chunks.append(line_break)
+            if first_line_break != '\n':
+                if charge:
+                    self.charge_scalar_length(len(first_line_break), start_mark)
+                chunks.append(first_line_break)
             elif not breaks:
+                if charge:
+                    self.charge_scalar_length(1, start_mark)
                 chunks.append(' ')
             chunks.extend(breaks)
         elif whitespaces:
+            if charge:
+                self.charge_scalar_length(length, start_mark)
             chunks.append(whitespaces)
         return chunks
 

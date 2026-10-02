@@ -4,13 +4,21 @@ __all__ = ['Composer', 'ComposerError']
 from .error import MarkedYAMLError
 from .events import *
 from .nodes import *
+from .resource import ResourceBudget, _ResourceBudgetTracker
 
 class ComposerError(MarkedYAMLError):
     pass
 
 class Composer:
 
-    def __init__(self):
+    def __init__(self, resource_tracker=None):
+        self.anchors = {}
+        if resource_tracker is None:
+            resource_tracker = _ResourceBudgetTracker(
+                    ResourceBudget.unlimited(), ResourceBudget.unlimited())
+        self.resource_tracker = resource_tracker
+
+    def dispose(self):
         self.anchors = {}
 
     def check_node(self):
@@ -50,19 +58,24 @@ class Composer:
     def compose_document(self):
         # Drop the DOCUMENT-START event.
         self.get_event()
+        self.resource_tracker.begin_document()
 
         # Compose the root node.
-        node = self.compose_node(None, None)
+        try:
+            node = self.compose_node(None, None)
 
-        # Drop the DOCUMENT-END event.
-        self.get_event()
+            # Drop the DOCUMENT-END event.
+            self.get_event()
+        finally:
+            self.resource_tracker.release_document()
+            self.anchors = {}
 
-        self.anchors = {}
         return node
 
     def compose_node(self, parent, index):
         if self.check_event(AliasEvent):
             event = self.get_event()
+            self.resource_tracker.charge_alias(event.start_mark)
             anchor = event.anchor
             if anchor not in self.anchors:
                 raise ComposerError(None, None, "found undefined alias %r"
@@ -75,14 +88,20 @@ class Composer:
                 raise ComposerError("found duplicate anchor %r; first occurrence"
                         % anchor, self.anchors[anchor].start_mark,
                         "second occurrence", event.start_mark)
+        container = isinstance(event,
+                (SequenceStartEvent, MappingStartEvent))
         self.descend_resolver(parent, index)
-        if self.check_event(ScalarEvent):
-            node = self.compose_scalar_node(anchor)
-        elif self.check_event(SequenceStartEvent):
-            node = self.compose_sequence_node(anchor)
-        elif self.check_event(MappingStartEvent):
-            node = self.compose_mapping_node(anchor)
-        self.ascend_resolver()
+        self.resource_tracker.enter_node(container, event.start_mark)
+        try:
+            if self.check_event(ScalarEvent):
+                node = self.compose_scalar_node(anchor)
+            elif self.check_event(SequenceStartEvent):
+                node = self.compose_sequence_node(anchor)
+            elif self.check_event(MappingStartEvent):
+                node = self.compose_mapping_node(anchor)
+        finally:
+            self.resource_tracker.leave_node(container)
+            self.ascend_resolver()
         return node
 
     def compose_scalar_node(self, anchor):
@@ -136,4 +155,3 @@ class Composer:
         end_event = self.get_event()
         node.end_mark = end_event.end_mark
         return node
-

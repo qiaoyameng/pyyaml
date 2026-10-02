@@ -114,7 +114,7 @@ def full_load_all(stream):
     """
     return load_all(stream, FullLoader)
 
-def safe_load(stream):
+def safe_load(stream, document_budget=None, stream_budget=None):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
@@ -122,9 +122,11 @@ def safe_load(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
-    return load(stream, SafeLoader)
+    return load(stream, lambda stream: SafeLoader(
+            stream, document_budget=document_budget,
+            stream_budget=stream_budget))
 
-def safe_load_all(stream):
+def safe_load_all(stream, document_budget=None, stream_budget=None):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
@@ -132,7 +134,9 @@ def safe_load_all(stream):
     Resolve only basic YAML tags. This is known
     to be safe for untrusted input.
     """
-    return load_all(stream, SafeLoader)
+    return load_all(stream, lambda stream: SafeLoader(
+            stream, document_budget=document_budget,
+            stream_budget=stream_budget))
 
 def unsafe_load(stream):
     """

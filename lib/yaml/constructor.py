@@ -27,6 +27,12 @@ class BaseConstructor:
         self.state_generators = []
         self.deep_construct = False
 
+    def dispose(self):
+        self.constructed_objects = {}
+        self.recursive_objects = {}
+        self.state_generators = []
+        self.deep_construct = False
+
     def check_data(self):
         # If there are more documents available?
         return self.check_node()
@@ -52,17 +58,20 @@ class BaseConstructor:
         return None
 
     def construct_document(self, node):
-        data = self.construct_object(node)
-        while self.state_generators:
-            state_generators = self.state_generators
+        try:
+            data = self.construct_object(node)
+            while self.state_generators:
+                state_generators = self.state_generators
+                self.state_generators = []
+                for generator in state_generators:
+                    for dummy in generator:
+                        pass
+            return data
+        finally:
+            self.constructed_objects = {}
+            self.recursive_objects = {}
             self.state_generators = []
-            for generator in state_generators:
-                for dummy in generator:
-                    pass
-        self.constructed_objects = {}
-        self.recursive_objects = {}
-        self.deep_construct = False
-        return data
+            self.deep_construct = False
 
     def construct_object(self, node, deep=False):
         if node in self.constructed_objects:
