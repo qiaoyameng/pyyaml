@@ -7,6 +7,7 @@ from .nodes import *
 
 from .loader import *
 from .dumper import *
+from .constructor import DuplicateKeyError, DuplicateKeyPolicy, DuplicateKeys
 
 __version__ = '7.0.0.dev0'
 try:
@@ -71,23 +72,23 @@ def compose_all(stream, Loader=Loader):
     finally:
         loader.dispose()
 
-def load(stream, Loader):
+def load(stream, Loader, **loader_options):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
     """
-    loader = Loader(stream)
+    loader = Loader(stream, **loader_options)
     try:
         return loader.get_single_data()
     finally:
         loader.dispose()
 
-def load_all(stream, Loader):
+def load_all(stream, Loader, **loader_options):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
     """
-    loader = Loader(stream)
+    loader = Loader(stream, **loader_options)
     try:
         while loader.check_data():
             yield loader.get_data()
@@ -114,25 +115,31 @@ def full_load_all(stream):
     """
     return load_all(stream, FullLoader)
 
-def safe_load(stream):
+def safe_load(stream, duplicate_keys=DuplicateKeys.LAST):
     """
     Parse the first YAML document in a stream
     and produce the corresponding Python object.
 
-    Resolve only basic YAML tags. This is known
-    to be safe for untrusted input.
-    """
-    return load(stream, SafeLoader)
+    Resolve only basic YAML tags. This is known to be safe for untrusted input.
 
-def safe_load_all(stream):
+    duplicate_keys selects how explicit duplicate mapping keys are handled:
+    DuplicateKeys.RAISE, DuplicateKeys.FIRST, or DuplicateKeys.LAST.
+    Inherited merge keys do not conflict with explicit overrides.
+    """
+    return load(stream, SafeLoader, duplicate_keys=duplicate_keys)
+
+def safe_load_all(stream, duplicate_keys=DuplicateKeys.LAST):
     """
     Parse all YAML documents in a stream
     and produce corresponding Python objects.
 
-    Resolve only basic YAML tags. This is known
-    to be safe for untrusted input.
+    Resolve only basic YAML tags. This is known to be safe for untrusted input.
+
+    duplicate_keys selects how explicit duplicate mapping keys are handled:
+    DuplicateKeys.RAISE, DuplicateKeys.FIRST, or DuplicateKeys.LAST.
+    Inherited merge keys do not conflict with explicit overrides.
     """
-    return load_all(stream, SafeLoader)
+    return load_all(stream, SafeLoader, duplicate_keys=duplicate_keys)
 
 def unsafe_load(stream):
     """
@@ -387,4 +394,3 @@ class YAMLObject(metaclass=YAMLObjectMetaclass):
         """
         return dumper.represent_yaml_object(cls.yaml_tag, data, cls,
                 flow_style=cls.yaml_flow_style)
-

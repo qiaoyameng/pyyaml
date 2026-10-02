@@ -20,22 +20,22 @@ class BaseLoader(Reader, Scanner, Parser, Composer, BaseConstructor, BaseResolve
 
 class FullLoader(Reader, Scanner, Parser, Composer, FullConstructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, duplicate_keys=DuplicateKeys.LAST):
         Reader.__init__(self, stream)
         Scanner.__init__(self)
         Parser.__init__(self)
         Composer.__init__(self)
-        FullConstructor.__init__(self)
+        FullConstructor.__init__(self, duplicate_keys=duplicate_keys)
         Resolver.__init__(self)
 
 class SafeLoader(Reader, Scanner, Parser, Composer, SafeConstructor, Resolver):
 
-    def __init__(self, stream):
+    def __init__(self, stream, duplicate_keys=DuplicateKeys.LAST):
         Reader.__init__(self, stream)
         Scanner.__init__(self)
         Parser.__init__(self)
         Composer.__init__(self)
-        SafeConstructor.__init__(self)
+        SafeConstructor.__init__(self, duplicate_keys=duplicate_keys)
         Resolver.__init__(self)
 
 class Loader(Reader, Scanner, Parser, Composer, Constructor, Resolver):

@@ -5,7 +5,10 @@ __all__ = [
     'FullConstructor',
     'UnsafeConstructor',
     'Constructor',
-    'ConstructorError'
+    'ConstructorError',
+    'DuplicateKeyError',
+    'DuplicateKeys',
+    'DuplicateKeyPolicy',
 ]
 
 from .error import *
@@ -13,7 +16,41 @@ from .nodes import *
 
 import collections.abc, datetime, base64, binascii, re, sys, types
 
+class DuplicateKeys:
+    RAISE = 'raise'
+    REJECT = 'raise'
+    FIRST = 'first'
+    KEEP_FIRST = 'first'
+    LAST = 'last'
+    KEEP_LAST = 'last'
+
+DuplicateKeyPolicy = DuplicateKeys
+
+def normalize_duplicate_keys(value):
+    if value is None:
+        return DuplicateKeys.LAST
+    aliases = {
+        'raise': DuplicateKeys.RAISE,
+        'reject': DuplicateKeys.RAISE,
+        'deny': DuplicateKeys.RAISE,
+        'error': DuplicateKeys.RAISE,
+        'first': DuplicateKeys.FIRST,
+        'keep_first': DuplicateKeys.FIRST,
+        'keep-first': DuplicateKeys.FIRST,
+        'last': DuplicateKeys.LAST,
+        'keep_last': DuplicateKeys.LAST,
+        'keep-last': DuplicateKeys.LAST,
+    }
+    try:
+        policy = aliases[value]
+    except (KeyError, TypeError):
+        raise ValueError("invalid duplicate key policy %r" % (value,)) from None
+    return policy
+
 class ConstructorError(MarkedYAMLError):
+    pass
+
+class DuplicateKeyError(ConstructorError):
     pass
 
 class BaseConstructor:
@@ -21,11 +58,15 @@ class BaseConstructor:
     yaml_constructors = {}
     yaml_multi_constructors = {}
 
-    def __init__(self):
+    def __init__(self, duplicate_keys=DuplicateKeys.LAST):
         self.constructed_objects = {}
         self.recursive_objects = {}
         self.state_generators = []
         self.deep_construct = False
+        self.path = []
+        self.constructed_mappings = set()
+        self.mappings_being_constructed = set()
+        self.duplicate_keys = normalize_duplicate_keys(duplicate_keys)
 
     def check_data(self):
         # If there are more documents available?
@@ -56,11 +97,18 @@ class BaseConstructor:
         while self.state_generators:
             state_generators = self.state_generators
             self.state_generators = []
-            for generator in state_generators:
-                for dummy in generator:
-                    pass
+            old_path = self.path
+            for generator, path in state_generators:
+                self.path = list(path)
+                try:
+                    for dummy in generator:
+                        pass
+                finally:
+                    self.path = old_path
         self.constructed_objects = {}
         self.recursive_objects = {}
+        self.constructed_mappings = set()
+        self.mappings_being_constructed = set()
         self.deep_construct = False
         return data
 
@@ -102,12 +150,13 @@ class BaseConstructor:
             data = constructor(self, tag_suffix, node)
         if isinstance(data, types.GeneratorType):
             generator = data
+            path = tuple(self.path)
             data = next(generator)
             if self.deep_construct:
                 for dummy in generator:
                     pass
             else:
-                self.state_generators.append(generator)
+                self.state_generators.append((generator, path))
         self.constructed_objects[node] = data
         del self.recursive_objects[node]
         if deep:
@@ -126,8 +175,14 @@ class BaseConstructor:
             raise ConstructorError(None, None,
                     "expected a sequence node, but found %s" % node.id,
                     node.start_mark)
-        return [self.construct_object(child, deep=deep)
-                for child in node.value]
+        sequence = []
+        for index, child in enumerate(node.value):
+            self.path.append('[%d]' % index)
+            try:
+                sequence.append(self.construct_object(child, deep=deep))
+            finally:
+                self.path.pop()
+        return sequence
 
     def construct_mapping(self, node, deep=False):
         if not isinstance(node, MappingNode):
@@ -169,6 +224,32 @@ class BaseConstructor:
         cls.yaml_multi_constructors[tag_prefix] = multi_constructor
 
 class SafeConstructor(BaseConstructor):
+
+    def __init__(self, duplicate_keys=DuplicateKeys.LAST):
+        super().__init__(duplicate_keys=duplicate_keys)
+
+    def format_path(self):
+        path = '$'
+        for segment in self.path:
+            if segment.startswith('['):
+                path += segment
+            else:
+                path += '.' + segment
+        return path
+
+    def path_segment_for_key(self, key_node, key):
+        if isinstance(key_node, ScalarNode):
+            return key_node.value
+        return '?'
+
+    def raise_duplicate_key(self, node, first_key_node, key_node, key):
+        raise DuplicateKeyError(
+                "while constructing a mapping at %s; first occurrence of "
+                "duplicate key %r" % (self.format_path(), key),
+                first_key_node.start_mark,
+                "key appears again",
+                key_node.start_mark,
+                "mapping path: %s" % self.format_path())
 
     def construct_scalar(self, node):
         if isinstance(node, MappingNode):
@@ -216,9 +297,127 @@ class SafeConstructor(BaseConstructor):
             node.value = merge + node.value
 
     def construct_mapping(self, node, deep=False):
-        if isinstance(node, MappingNode):
-            self.flatten_mapping(node)
-        return super().construct_mapping(node, deep=deep)
+        if not isinstance(node, MappingNode):
+            raise ConstructorError(None, None,
+                    "expected a mapping node, but found %s" % node.id,
+                    node.start_mark)
+        if node in self.constructed_mappings:
+            return self.constructed_objects[node]
+
+        node_id = id(node)
+        if node_id in self.mappings_being_constructed:
+            return self.constructed_objects.get(node, {})
+
+        existing_data = self.constructed_objects.get(node)
+        if isinstance(existing_data, dict):
+            mapping = existing_data
+            cache_mapping = True
+        elif node in self.constructed_objects:
+            mapping = {}
+            cache_mapping = False
+        else:
+            mapping = {}
+            cache_mapping = True
+        if cache_mapping:
+            self.constructed_objects[node] = mapping
+        self.mappings_being_constructed.add(node_id)
+
+        try:
+            inherited = {}
+            merge_sources = set()
+
+            def add_merge_source(source, segment):
+                source_id = id(source)
+                if source_id in merge_sources:
+                    return
+                merge_sources.add(source_id)
+                self.path.append(segment)
+                try:
+                    source_mapping = self.construct_mapping(source, deep=deep)
+                finally:
+                    self.path.pop()
+                if not isinstance(source_mapping, dict):
+                    raise ConstructorError("while constructing a mapping",
+                            node.start_mark,
+                            "expected a mapping for merging, but found %s"
+                            % source.id, source.start_mark)
+                for key, value in source_mapping.items():
+                    if key not in inherited:
+                        inherited[key] = value
+
+            for key_node, value_node in node.value:
+                if key_node.tag != 'tag:yaml.org,2002:merge':
+                    continue
+                if isinstance(value_node, MappingNode):
+                    add_merge_source(value_node, '<<')
+                elif isinstance(value_node, SequenceNode):
+                    for index, subnode in enumerate(value_node.value):
+                        if not isinstance(subnode, MappingNode):
+                            raise ConstructorError("while constructing a mapping",
+                                    node.start_mark,
+                                    "expected a mapping for merging, but found %s"
+                                    % subnode.id, subnode.start_mark)
+                        add_merge_source(subnode, '<<[%d]' % index)
+                else:
+                    raise ConstructorError("while constructing a mapping",
+                            node.start_mark,
+                            "expected a mapping or list of mappings for merging, "
+                            "but found %s" % value_node.id,
+                            value_node.start_mark)
+
+            explicit = {}
+            explicit_key_nodes = {}
+            for key_node, value_node in node.value:
+                if key_node.tag == 'tag:yaml.org,2002:merge':
+                    continue
+
+                if isinstance(key_node, CollectionNode):
+                    self.path.append('?')
+                    try:
+                        key = self.construct_object(key_node, deep=deep)
+                    finally:
+                        self.path.pop()
+                elif key_node.tag == 'tag:yaml.org,2002:value':
+                    key = self.construct_scalar(key_node)
+                else:
+                    key = self.construct_object(key_node, deep=deep)
+
+                if not isinstance(key, collections.abc.Hashable):
+                    raise ConstructorError("while constructing a mapping",
+                            node.start_mark,
+                            "found unhashable key", key_node.start_mark)
+
+                duplicate_key_node = explicit_key_nodes.get(key)
+                if duplicate_key_node is not None:
+                    if self.duplicate_keys == DuplicateKeys.RAISE:
+                        self.raise_duplicate_key(
+                                node, duplicate_key_node, key_node, key)
+                    if self.duplicate_keys == DuplicateKeys.FIRST:
+                        self.path.append(self.path_segment_for_key(key_node, key))
+                        try:
+                            self.construct_object(value_node, deep=deep)
+                        finally:
+                            self.path.pop()
+                        continue
+
+                segment = self.path_segment_for_key(key_node, key)
+                self.path.append(segment)
+                try:
+                    value = self.construct_object(value_node, deep=deep)
+                finally:
+                    self.path.pop()
+
+                explicit[key] = value
+                explicit_key_nodes[key] = key_node
+
+            mapping.update(inherited)
+            mapping.update(explicit)
+        finally:
+            self.mappings_being_constructed.discard(node_id)
+
+        if cache_mapping:
+            self.constructed_mappings.add(node)
+        return mapping
 
     def construct_yaml_null(self, node):
         self.construct_scalar(node)
@@ -413,8 +612,7 @@ class SafeConstructor(BaseConstructor):
     def construct_yaml_map(self, node):
         data = {}
         yield data
-        value = self.construct_mapping(node)
-        data.update(value)
+        data.update(self.construct_mapping(node))
 
     def construct_yaml_object(self, node, cls):
         data = cls.__new__(cls)
