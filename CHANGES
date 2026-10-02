@@ -5,7 +5,11 @@ For a complete changelog, see:
 
 7.0.0.dev0 (TBD)
 
-* TBD
+* Add safe ``!include`` support: `IncludeLoader`, `safe_load_include`,
+  `safe_load_all_include`, and a root-constrained `FileIncludeResolver`.
+  Included text is supplied by a caller-provided resolver; the library
+  enforces include count/depth limits and cycle detection, reuses parsed
+  representation trees, and returns independent copies per expansion.
 
 6.0.2 (2024-08-06)
 
@@ -275,4 +279,3 @@ For a complete changelog, see:
 * Initial release.  The version number reflects the codename
   of the project (PyYAML 3000) and differentiates it from
   the abandoned PyYaml module.
-
