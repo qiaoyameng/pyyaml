@@ -45,6 +45,38 @@ To test with a specific Python version:
 
     make test PYTHON-VERSION=3.13.5
 
+## Stable dump mode
+
+`yaml.stable_dump(data)` serializes a document to deterministic UTF-8
+bytes: equal input data always yields byte-identical output, regardless
+of dict insertion order or object addresses. This makes the output
+suitable for fingerprinting and hashing. All formatting options are
+fixed (sorted string keys, block style, 2-space indent, `\n` line
+breaks, UTF-8); the regular `yaml.dump` options are unaffected.
+
+Only a restricted set of types is accepted; anything else raises
+`yaml.representer.RepresenterError` immediately, without calling
+`repr()` on the offending object:
+
+    >>> yaml.stable_dump({'b': None, 'a': [1, 2.5, True, 'x', b'\x00']})
+    b'a:\n- 1\n- 2.5\n- true\n- x\n- !!binary |\n  AA==\nb: null\n'
+    >>> yaml.stable_dump({1: 'x'})          # non-string key
+    RepresenterError: stable dump only accepts string mapping keys, ...
+    >>> yaml.stable_dump({'d': datetime.date(2026, 1, 1)})
+    RepresenterError: stable dump cannot represent objects of type 'date'
+
+Supported: `None`, `bool`, `int`, `float` (special values are emitted
+as `.nan`/`.inf`/`-.inf`), `str`, `bytes`, `list`/`tuple`, and `dict`
+with string keys. Shared and recursive containers are emitted with
+anchors named `idNNN` in traversal order, so their representation is
+repeatable and loading the output restores the sharing:
+
+    >>> shared = {'x': 1}
+    >>> print(yaml.stable_dump({'a': shared, 'b': shared}).decode())
+    a: &id001
+      x: 1
+    b: *id001
+
 ## Further Information
 
 * For more information, check the

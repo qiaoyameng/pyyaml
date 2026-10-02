@@ -268,6 +268,50 @@ def safe_dump(data, stream=None, **kwds):
     """
     return dump_all([data], stream, Dumper=SafeDumper, **kwds)
 
+def stable_dump_all(documents, stream=None):
+    """
+    Serialize a sequence of Python objects into a stable YAML byte stream.
+
+    "Stable" means that equal input data always produces byte-identical
+    output, regardless of dict insertion order or object addresses.  All
+    formatting options are fixed: mapping keys are sorted, block style
+    with 2-space indent, '\\n' line breaks, UTF-8 encoding, and anchors
+    named idNNN in traversal order for shared or recursive containers.
+
+    Only a restricted set of types is accepted: None, bool, int, float,
+    str, bytes, list/tuple, and dict with string keys.  Anything else
+    raises RepresenterError immediately, without calling repr() on the
+    offending object.
+
+    If stream is None, return the produced bytes instead.  A given
+    stream must accept bytes.
+
+    >>> yaml.stable_dump({'b': 1, 'a': [True, None, 2.5]})
+    b'a:\\n- true\\n- null\\n- 2.5\\nb: 1\\n'
+    """
+    getvalue = None
+    if stream is None:
+        stream = io.BytesIO()
+        getvalue = stream.getvalue
+    dumper = StableDumper(stream)
+    try:
+        dumper.open()
+        for data in documents:
+            dumper.represent(data)
+        dumper.close()
+    finally:
+        dumper.dispose()
+    if getvalue:
+        return getvalue()
+
+def stable_dump(data, stream=None):
+    """
+    Serialize a Python object into a stable YAML byte stream.
+    See stable_dump_all for the accepted types and fixed format.
+    If stream is None, return the produced bytes instead.
+    """
+    return stable_dump_all([data], stream=stream)
+
 def add_implicit_resolver(tag, regexp, first=None,
         Loader=None, Dumper=Dumper):
     """
@@ -387,4 +431,3 @@ class YAMLObject(metaclass=YAMLObjectMetaclass):
         """
         return dumper.represent_yaml_object(cls.yaml_tag, data, cls,
                 flow_style=cls.yaml_flow_style)
-

@@ -1,6 +1,6 @@
 
 __all__ = ['BaseRepresenter', 'SafeRepresenter', 'Representer',
-    'RepresenterError']
+    'StableRepresenter', 'RepresenterError']
 
 from .error import *
 from .nodes import *
@@ -269,6 +269,65 @@ SafeRepresenter.add_representer(datetime.datetime,
 SafeRepresenter.add_representer(None,
         SafeRepresenter.represent_undefined)
 
+class StableRepresenter(SafeRepresenter):
+    """A restricted representer for the stable (deterministic) output mode.
+
+    Only the safe basic types are accepted:
+    ``None``, ``bool``, ``int``, ``float``, ``str``, ``bytes``,
+    ``list``/``tuple`` and ``dict``.  Mapping keys must be strings.
+    Anything else is rejected immediately with a ``RepresenterError``
+    that never includes the offending object itself, so ``repr`` of an
+    arbitrary object is never called to produce output or diagnostics.
+    """
+
+    # Start from empty registries: unlike SafeRepresenter, types such as
+    # ``set`` or ``datetime`` are *not* supported in stable mode.
+    yaml_representers = {}
+    yaml_multi_representers = {}
+
+    def represent_dict(self, data):
+        for key in data:
+            if not isinstance(key, str):
+                raise RepresenterError(
+                    "stable dump only accepts string mapping keys, "
+                    "got a key of type '%s'" % type(key).__name__)
+        return self.represent_mapping('tag:yaml.org,2002:map', data)
+
+    def represent_undefined(self, data):
+        raise RepresenterError(
+            "stable dump cannot represent objects of type '%s'"
+            % type(data).__name__)
+
+StableRepresenter.add_representer(type(None),
+        StableRepresenter.represent_none)
+
+StableRepresenter.add_representer(str,
+        StableRepresenter.represent_str)
+
+StableRepresenter.add_representer(bytes,
+        StableRepresenter.represent_binary)
+
+StableRepresenter.add_representer(bool,
+        StableRepresenter.represent_bool)
+
+StableRepresenter.add_representer(int,
+        StableRepresenter.represent_int)
+
+StableRepresenter.add_representer(float,
+        StableRepresenter.represent_float)
+
+StableRepresenter.add_representer(list,
+        StableRepresenter.represent_list)
+
+StableRepresenter.add_representer(tuple,
+        StableRepresenter.represent_list)
+
+StableRepresenter.add_representer(dict,
+        StableRepresenter.represent_dict)
+
+StableRepresenter.add_representer(None,
+        StableRepresenter.represent_undefined)
+
 class Representer(SafeRepresenter):
 
     def represent_complex(self, data):
@@ -386,4 +445,3 @@ Representer.add_representer(types.ModuleType,
 
 Representer.add_multi_representer(object,
         Representer.represent_object)
-

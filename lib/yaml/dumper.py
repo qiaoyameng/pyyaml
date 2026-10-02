@@ -1,5 +1,5 @@
 
-__all__ = ['BaseDumper', 'SafeDumper', 'Dumper']
+__all__ = ['BaseDumper', 'SafeDumper', 'Dumper', 'StableDumper']
 
 from .emitter import *
 from .serializer import *
@@ -60,3 +60,31 @@ class Dumper(Emitter, Serializer, Representer, Resolver):
                 default_flow_style=default_flow_style, sort_keys=sort_keys)
         Resolver.__init__(self)
 
+class StableDumper(Emitter, Serializer, StableRepresenter, Resolver):
+    """A dumper producing stable (deterministic) YAML bytes.
+
+    All formatting options are fixed so that equal input data always
+    yields byte-identical output, regardless of dict insertion order or
+    object identities:
+
+    - mapping keys are sorted (keys must be strings, so the order is
+      total and platform independent),
+    - block style, 2-space indent, ``\\n`` line breaks, UTF-8 encoding
+      with unicode characters emitted verbatim,
+    - float special values use the YAML forms ``.nan``/``.inf``/``-.inf``,
+    - anchors for shared or recursive containers are named ``idNNN`` in
+      document traversal order, never from object addresses.
+
+    The stream must accept ``bytes``.
+    """
+
+    def __init__(self, stream):
+        Emitter.__init__(self, stream, canonical=False,
+                indent=2, width=80,
+                allow_unicode=True, line_break='\n')
+        Serializer.__init__(self, encoding='utf-8',
+                explicit_start=False, explicit_end=False,
+                version=None, tags=None)
+        StableRepresenter.__init__(self, default_style=None,
+                default_flow_style=False, sort_keys=True)
+        Resolver.__init__(self)
